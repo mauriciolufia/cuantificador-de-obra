@@ -1,0 +1,369 @@
+  const renderGlobalSteelReport = () => {
+    if (!showGlobalSteelReport) return null;
+    
+    const filteredEstructuras = globalReportLevel === 'todos' ? todasLasEstructuras : todasLasEstructuras.filter(e => e._nivelId === globalReportLevel);
+    const estructurasConAcero = filteredEstructuras.filter(e => e.aceros && e.aceros.length > 0);
+
+    let totalGlobalAcero = 0;
+    let resumenCimentacion = {};
+    let resumenEstructura = {};
+    let resumenMuros = {};
+
+    estructurasConAcero.forEach(e => {
+       const ePiezas = parseFloat(e.piezas) || 1;
+       const tipo = (e.tipo || '').toLowerCase();
+       const isCimentacion = ['zapata aislada', 'zapata corrida', 'contratrabe', 'dado'].includes(tipo);
+       const isMuro = tipo === 'muro';
+
+       e.aceros.forEach(a => {
+          const calc = calcAceroItem(a);
+          const kgTotalItem = Math.round(calc.kg * ePiezas * 100) / 100;
+          totalGlobalAcero += kgTotalItem;
+          const numVar = a.numVarilla || '-';
+          
+          if (isCimentacion) {
+             resumenCimentacion[numVar] = (resumenCimentacion[numVar] || 0) + kgTotalItem;
+          } else if (isMuro) {
+             resumenMuros[numVar] = (resumenMuros[numVar] || 0) + kgTotalItem;
+          } else {
+             resumenEstructura[numVar] = (resumenEstructura[numVar] || 0) + kgTotalItem;
+          }
+       });
+    });
+
+    return (
+      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1400px] flex flex-col h-[90vh] overflow-hidden">
+          <div className="bg-slate-800 text-white p-6 flex justify-between items-center shrink-0">
+             <div className="flex items-center gap-4">
+                <div className="p-3 bg-slate-700 rounded-xl"><Printer size={24} className="text-slate-200" /></div>
+                <div>
+                   <h3 className="font-black uppercase tracking-widest text-lg">Reporte Global de Acero (Desglose por Elemento)</h3>
+                   <p className="text-xs text-slate-400 font-bold uppercase mt-1">Análisis detallado de varilla y refuerzos</p>
+                </div>
+             </div>
+             <div className="flex items-center gap-4">
+                <select value={globalReportLevel} onChange={e => setGlobalReportLevel(e.target.value)} className="bg-slate-700 text-white text-xs font-bold uppercase p-2 rounded-lg outline-none border border-slate-600">
+                   <option value="todos">Todos los Niveles</option>
+                   {niveles.map(n => <option key={n.id} value={n.id}>{n.nombre}</option>)}
+                </select>
+                <button onClick={() => {
+                   let titleLevelName = globalReportLevel === 'todos' ? 'TODOS LOS NIVELES' : (niveles.find(n=>n.id===globalReportLevel)?.nombre || '');
+                   
+                   const renderExVal = (v) => {
+                       const num = parseFloat(v);
+                       if (isNaN(num) || num === 0) return '-';
+                       return num.toFixed(2);
+                   };
+
+                   let html = \`<table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">
+                      <colgroup>
+                         <col width="30" />
+                         <col width="70" />
+                         <col width="160" />
+                         <col width="120" />
+                         <col width="50" />
+                         <col width="100" />
+                         <col width="60" />
+                         <col width="60" />
+                         <col width="50" />
+                         <col width="70" />
+                         <col width="60" />
+                         <col width="50" />
+                         <col width="50" />
+                         <col width="60" />
+                         <col width="70" />
+                         <col width="70" />
+                         <col width="110" />
+                      </colgroup>
+                      <thead>
+                      <tr style="height: 15pt;">
+                         <td style="border: none; background-color: #ffffff;"></td>
+                         <th colspan="16" style="background-color: #0b1a30; color: #ffffff; font-size: 12pt; font-weight: bold; text-align: center; vertical-align: middle; border: 1px solid #000000; text-transform: uppercase;">
+                            REPORTE GLOBAL DE ACERO (DESGLOSE POR ELEMENTO) - NIVEL: \${titleLevelName}
+                         </th>
+                      </tr>
+                      <tr style="height: 15pt;">
+                         <td colspan="17" style="border: none; background-color: #ffffff;"></td>
+                      </tr>
+                      <tr style="background-color: #e2e8f0; color: #000000; font-size: 8pt; font-weight: bold; text-align: center; height: 15pt;">
+                         <td style="border: none; background-color: #ffffff;"></td>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">NIVEL</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">UBICACIÓN (EJE / CLAVE)</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">ELEMENTO</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">PZAS</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">TIPO REF.</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;"># VAR</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">TRAMO</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">SEP.</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">PZAS REF.</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">LONG.</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">GAN.</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">TRAS.</th>
+                         <th style="border: 1px solid #000000; vertical-align: middle;">ML/PZA</th>
+                         <th style="border: 1px solid #000000; color: #0070c0; vertical-align: middle;">TOT.(ML)</th>
+                         <th style="border: 1px solid #000000; color: #002060; vertical-align: middle;">TOT.(KG)</th>
+                         <th style="border: 1px solid #000000; color: #002060; vertical-align: middle;">TOTAL ELEM.(KG)</th>
+                      </tr>
+                   </thead><tbody>\`;
+
+                   estructurasConAcero.forEach((e) => {
+                      const ePiezas = parseFloat(e.piezas) || 1;
+                      const elemTotalKg = calcAceroTotalKg(e.aceros, e.piezas);
+                      const tipoRowSpan = e.aceros.length > 0 ? e.aceros.length : 1;
+
+                      if (e.aceros.length === 0) {
+                         html += \`<tr style="background-color: #ffffff; text-align: center; height: 15pt;">
+                            <td style="border: none; background-color: #ffffff;"></td>
+                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">\${e._nivelInfo}</td>
+                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; text-transform: uppercase; vertical-align: middle; text-align: center;">\${e.eje} \${e.clave}</td>
+                            <td style="border: 1px solid #000000; font-size: 8pt; color: #595959; text-transform: uppercase; vertical-align: middle; text-align: center;">\${e.tipo}</td>
+                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #1d4ed8; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">\${ePiezas.toFixed(2)}</td>
+                            <td colspan="11" style="border: 1px solid #000000; font-size: 8pt; color: #808080; vertical-align: middle; text-align: center;">Sin acero</td>
+                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #1d4ed8; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${elemTotalKg.toFixed(2)}</td>
+                         </tr>\`;
+                      } else {
+                         e.aceros.forEach((a, idx) => {
+                            const calc = calcAceroItem(a);
+                            const kgTotal = Math.round(calc.kg * ePiezas * 100) / 100;
+                            html += \`<tr style="background-color: #ffffff; text-align: center; height: 15pt;">
+                               <td style="border: none; background-color: #ffffff;"></td>\`;
+                            
+                            if (idx === 0) {
+                               html += \`
+                               <td rowspan="\${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">\${e._nivelInfo}</td>
+                               <td rowspan="\${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; text-transform: uppercase; vertical-align: middle; text-align: center;">\${e.eje} \${e.clave}</td>
+                               <td rowspan="\${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; color: #595959; text-transform: uppercase; vertical-align: middle; text-align: center;">\${e.tipo}</td>
+                               <td rowspan="\${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #1d4ed8; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">\${ePiezas.toFixed(2)}</td>\`;
+                            }
+
+                            html += \`
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #000000; text-align: center; text-transform: uppercase; vertical-align: middle;">\${a.tipo}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">#\${parseFloat(a.numVarilla || 0).toFixed(2)}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${renderExVal(a.anchoCalc)}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${renderExVal(a.separacion)}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${parseFloat(a.piezas || 1).toFixed(2)}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${renderExVal(a.longitud)}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #059669; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${renderExVal(a.ganchos)}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #059669; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${renderExVal(a.traslapes)}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #64748b; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${calc.mlPorPieza.toFixed(2)}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${(calc.ml * ePiezas).toFixed(2)}</td>
+                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${kgTotal.toFixed(2)}</td>\`;
+
+                            if (idx === 0) {
+                               html += \`<td rowspan="\${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">\${elemTotalKg.toFixed(2)}</td>\`;
+                            }
+                            html += \`</tr>\`;
+                         });
+                      }
+                   });
+                   html += \`</tbody></table><br/><br/>\`;
+                   
+                   html += \`<table style="width: 100%; border: none; font-family: Arial, sans-serif;"><tr>
+                     <td style="width: 30px; border: none;"></td>
+                     <td style="vertical-align: top; border: none; padding-right: 15px;">
+                        <table style="border-collapse: collapse; text-align: center;">
+                           <thead>
+                              <tr style="height: 15pt;"><th colspan="2" style="background-color: #0f766e; color: #ffffff; font-size: 12pt; border: 1px solid #bfbfbf; vertical-align: middle;">CIMENTACIÓN</th></tr>
+                              <tr style="background-color: #ccfbf1; font-size: 12pt; color: #0f766e; height: 15pt;">
+                                 <th style="border: 1px solid #bfbfbf; width: 100px; vertical-align: middle; font-weight: normal; font-size: 10pt;">CALIBRE</th>
+                                 <th style="border: 1px solid #bfbfbf; width: 120px; vertical-align: middle; font-weight: normal; font-size: 10pt;">PESO (KG)</th>
+                              </tr>
+                           </thead>
+                           <tbody>
+                              \${Object.keys(resumenCimentacion).length === 0 ? \`<tr style="height: 15pt;"><td colspan="2" style="border: 1px solid #bfbfbf; color: #94a3b8; font-size: 12pt; vertical-align: middle;">Sin datos</td></tr>\` : 
+                                Object.entries(resumenCimentacion).sort((a,b)=>Number(a[0])-Number(b[0])).map(([num, kg]) => \`
+                                <tr style="background-color: #ffffff; height: 15pt;">
+                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #0f766e; font-size: 12pt; vertical-align: middle; text-align: center; mso-number-format:'0\\\\.00';">#\${parseFloat(num).toFixed(2)}</td>
+                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #000000; text-align: center; font-size: 12pt; vertical-align: middle; mso-number-format:'0\\\\.00';">\${kg.toFixed(2)}</td>
+                                </tr>\`).join('')}
+                           </tbody>
+                        </table>
+                     </td>
+                     <td style="vertical-align: top; border: none; padding-right: 15px;">
+                        <table style="border-collapse: collapse; text-align: center;">
+                           <thead>
+                              <tr style="height: 15pt;"><th colspan="2" style="background-color: #1d4ed8; color: #ffffff; font-size: 12pt; border: 1px solid #bfbfbf; vertical-align: middle;">ESTRUCTURA</th></tr>
+                              <tr style="background-color: #dbeafe; font-size: 12pt; color: #1d4ed8; height: 15pt;">
+                                 <th style="border: 1px solid #bfbfbf; width: 100px; vertical-align: middle; font-weight: normal; font-size: 10pt;">CALIBRE</th>
+                                 <th style="border: 1px solid #bfbfbf; width: 120px; vertical-align: middle; font-weight: normal; font-size: 10pt;">PESO (KG)</th>
+                              </tr>
+                           </thead>
+                           <tbody>
+                              \${Object.keys(resumenEstructura).length === 0 ? \`<tr style="height: 15pt;"><td colspan="2" style="border: 1px solid #bfbfbf; color: #94a3b8; font-size: 12pt; vertical-align: middle;">Sin datos</td></tr>\` : 
+                                Object.entries(resumenEstructura).sort((a,b)=>Number(a[0])-Number(b[0])).map(([num, kg]) => \`
+                                <tr style="background-color: #ffffff; height: 15pt;">
+                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #1d4ed8; font-size: 12pt; vertical-align: middle; text-align: center; mso-number-format:'0\\\\.00';">#\${parseFloat(num).toFixed(2)}</td>
+                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #000000; text-align: center; font-size: 12pt; vertical-align: middle; mso-number-format:'0\\\\.00';">\${kg.toFixed(2)}</td>
+                                </tr>\`).join('')}
+                           </tbody>
+                        </table>
+                     </td>
+                     <td style="vertical-align: top; border: none; padding-right: 15px;">
+                        <table style="border-collapse: collapse; text-align: center;">
+                           <thead>
+                              <tr style="height: 15pt;"><th colspan="2" style="background-color: #4338ca; color: #ffffff; font-size: 12pt; border: 1px solid #bfbfbf; vertical-align: middle;">MUROS</th></tr>
+                              <tr style="background-color: #e0e7ff; font-size: 12pt; color: #4338ca; height: 15pt;">
+                                 <th style="border: 1px solid #bfbfbf; width: 100px; vertical-align: middle; font-weight: normal; font-size: 10pt;">CALIBRE</th>
+                                 <th style="border: 1px solid #bfbfbf; width: 120px; vertical-align: middle; font-weight: normal; font-size: 10pt;">PESO (KG)</th>
+                              </tr>
+                           </thead>
+                           <tbody>
+                              \${Object.keys(resumenMuros).length === 0 ? \`<tr style="height: 15pt;"><td colspan="2" style="border: 1px solid #bfbfbf; color: #94a3b8; font-size: 12pt; vertical-align: middle;">Sin datos</td></tr>\` : 
+                                Object.entries(resumenMuros).sort((a,b)=>Number(a[0])-Number(b[0])).map(([num, kg]) => \`
+                                <tr style="background-color: #ffffff; height: 15pt;">
+                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #4338ca; font-size: 12pt; vertical-align: middle; text-align: center; mso-number-format:'0\\\\.00';">#\${parseFloat(num).toFixed(2)}</td>
+                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #000000; text-align: center; font-size: 12pt; vertical-align: middle; mso-number-format:'0\\\\.00';">\${kg.toFixed(2)}</td>
+                                </tr>\`).join('')}
+                           </tbody>
+                        </table>
+                     </td>
+                     <td style="vertical-align: top; border: none;">
+                        <table style="border-collapse: collapse; text-align: center;">
+                           <thead>
+                              <tr style="height: 15pt;"><th style="background-color: #0b1a30; color: #93c5fd; font-size: 12pt; border: 1px solid #bfbfbf; vertical-align: middle; width: 250px;">GRAN TOTAL ACERO (KG)</th></tr>
+                           </thead>
+                           <tbody>
+                              <tr style="height: 30pt;"><td style="border: 1px solid #bfbfbf; font-size: 20pt; font-weight: bold; color: #1d4ed8; padding: 10px; background-color: #ffffff; vertical-align: middle; text-align: center; mso-number-format:'0\\\\.00';">\${totalGlobalAcero.toFixed(2)}</td></tr>
+                           </tbody>
+                        </table>
+                     </td>
+                   </tr>
+                   </table>\`;
+                   
+                   exportFormattedExcel(html, \`Reporte_Global_Acero_\${globalReportLevel}\`);
+                }} className="px-4 py-2 bg-emerald-600 text-white rounded-lg font-black text-[10px] uppercase tracking-wider shadow-sm hover:bg-emerald-500 transition-colors flex items-center gap-2"><FileDown size={14}/> Excel</button>
+                <button onClick={() => setShowGlobalSteelReport(false)} className="p-2 hover:bg-white/20 rounded-full transition-colors"><X size={24}/></button>
+             </div>
+          </div>
+          <div className="p-0 flex-1 overflow-auto bg-slate-50 flex flex-col">
+             <div className="flex-1 overflow-auto">
+                <table className="w-full text-left border-collapse text-[10px] md:text-xs">
+                   <thead className="bg-slate-200 text-slate-700 uppercase font-black sticky top-0 shadow-sm z-10">
+                      <tr>
+                         <th className="p-3 border-b border-slate-300">Nivel</th>
+                         <th className="p-3 border-b border-slate-300">Ubicación (Eje / Clave)</th>
+                         <th className="p-3 border-b border-slate-300">Elemento</th>
+                         <th className="p-3 border-b border-slate-300 text-center">Pzas</th>
+                         <th className="p-0 border-b border-slate-300">
+                            <table className="w-full">
+                               <thead>
+                                  <tr>
+                                     <th className="w-[11%] p-2 text-center border-r border-slate-300">Tipo Ref.</th>
+                                     <th className="w-[7%] p-2 text-center border-r border-slate-300"># Var</th>
+                                     <th className="w-[9%] p-2 text-center border-r border-slate-300">Tramo</th>
+                                     <th className="w-[9%] p-2 text-center border-r border-slate-300">Sep.</th>
+                                     <th className="w-[9%] p-2 text-center border-r border-slate-300">Pzas</th>
+                                     <th className="w-[9%] p-2 text-center border-r border-slate-300">Long.</th>
+                                     <th className="w-[8%] p-2 text-center border-r border-slate-300">Gan.</th>
+                                     <th className="w-[8%] p-2 text-center border-r border-slate-300">Tras.</th>
+                                     <th className="w-[10%] p-2 text-center border-r border-slate-300">ML/Pza</th>
+                                     <th className="w-[10%] p-2 text-right border-r border-slate-300">Tot.(ML)</th>
+                                     <th className="w-[10%] p-2 text-right">Tot.(KG)</th>
+                                  </tr>
+                               </thead>
+                            </table>
+                         </th>
+                      </tr>
+                   </thead>
+                   <tbody className="divide-y divide-slate-200">
+                      {estructurasConAcero.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-400 font-bold uppercase">No hay elementos con acero registrado en este nivel.</td></tr>}
+                      {estructurasConAcero.map((e, i) => {
+                         const ePiezas = parseFloat(e.piezas) || 1;
+                         return (
+                            <tr key={i} className="hover:bg-white transition-colors bg-slate-50/30">
+                               <td className="p-3 border-r border-slate-200 font-bold text-slate-600">{e._nivelInfo}</td>
+                               <td className="p-3 border-r border-slate-200 font-black uppercase text-slate-800">{e.eje} {e.clave}</td>
+                               <td className="p-3 border-r border-slate-200 uppercase text-[10px] text-slate-600 font-bold">
+                                  {e.tipo} <br/><span className="text-[8px] text-slate-400">({e.largo} x {e.ancho} x {e.alto})</span>
+                               </td>
+                               <td className="p-3 border-r border-slate-200 text-center font-black text-indigo-700 bg-indigo-50/30 text-sm">{ePiezas}</td>
+                               <td className="p-0 border-r border-slate-200">
+                                  <table className="w-full text-[10px]">
+                                     <tbody className="divide-y divide-slate-100">
+                                        {e.aceros.map((a, j) => {
+                                           const calc = calcAceroItem(a);
+                                           const kgTotal = Math.round(calc.kg * ePiezas * 100) / 100;
+                                           return (
+                                              <tr key={j} className="hover:bg-blue-50/50">
+                                                 <td className="w-[11%] p-2 text-center border-r border-slate-100 font-bold text-slate-600 uppercase">{a.tipo}</td>
+                                                 <td className="w-[7%] p-2 text-center border-r border-slate-100 font-black text-slate-800">#{a.numVarilla}</td>
+                                                 <td className="w-[9%] p-2 text-center border-r border-slate-100 font-bold text-indigo-900">{a.anchoCalc || '-'}</td>
+                                                 <td className="w-[9%] p-2 text-center border-r border-slate-100 font-bold text-indigo-900">{a.separacion || '-'}</td>
+                                                 <td className="w-[9%] p-2 text-center border-r border-slate-100 font-black text-blue-900">{a.piezas || '1'}</td>
+                                                 <td className="w-[9%] p-2 text-center border-r border-slate-100 font-black text-blue-800">{parseFloat(a.longitud || 0).toFixed(2)}</td>
+                                                 <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-emerald-800">{a.ganchos || '0'}</td>
+                                                 <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-emerald-800">{parseFloat(a.traslapes || 0).toFixed(2)}</td>
+                                                 <td className="w-[10%] p-2 text-center border-r border-slate-100 font-black text-slate-500">{calc.mlPorPieza.toFixed(2)}</td>
+                                                 <td className="w-[10%] p-2 text-right border-r border-slate-100 font-black text-slate-600">{(calc.ml * ePiezas).toFixed(2)}</td>
+                                                 <td className="w-[10%] p-2 text-right font-black text-blue-700">{kgTotal.toFixed(2)}</td>
+                                              </tr>
+                                           )
+                                        })}
+                                     </tbody>
+                                  </table>
+                               </td>
+                            </tr>
+                         )
+                      })}
+                   </tbody>
+                </table>
+             </div>
+             
+             <div className="w-full bg-white border-t border-slate-200 p-6 shadow-md z-20 flex flex-col xl:flex-row gap-8 shrink-0">
+                <div className="flex-1 flex flex-col md:flex-row gap-6 border-r border-slate-100 pr-4">
+                   
+                   <div className="flex-1">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-teal-600 mb-3 border-b border-teal-100 pb-1">Cimentación</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                         {Object.keys(resumenCimentacion).length === 0 && <span className="text-[9px] text-slate-400 font-bold uppercase">Sin datos</span>}
+                         {Object.entries(resumenCimentacion).sort((a,b)=>Number(a[0])-Number(b[0])).map(([num, kg]) => (
+                            <div key={num} className="bg-teal-50/50 border border-teal-100 rounded-lg p-2">
+                               <span className="block text-[8px] font-black text-teal-500 uppercase">Varilla #{num}</span>
+                               <span className="font-black text-teal-700 text-sm">{kg.toLocaleString(undefined, {minimumFractionDigits: 2})} <span className="text-[8px]">kg</span></span>
+                            </div>
+                         ))}
+                      </div>
+                   </div>
+
+                   <div className="flex-1">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600 mb-3 border-b border-blue-100 pb-1">Estructura</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                         {Object.keys(resumenEstructura).length === 0 && <span className="text-[9px] text-slate-400 font-bold uppercase">Sin datos</span>}
+                         {Object.entries(resumenEstructura).sort((a,b)=>Number(a[0])-Number(b[0])).map(([num, kg]) => (
+                            <div key={num} className="bg-blue-50/50 border border-blue-100 rounded-lg p-2">
+                               <span className="block text-[8px] font-black text-blue-500 uppercase">Varilla #{num}</span>
+                               <span className="font-black text-blue-700 text-sm">{kg.toLocaleString(undefined, {minimumFractionDigits: 2})} <span className="text-[8px]">kg</span></span>
+                            </div>
+                         ))}
+                      </div>
+                   </div>
+
+                   <div className="flex-1">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-indigo-600 mb-3 border-b border-indigo-100 pb-1">Muros</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                         {Object.keys(resumenMuros).length === 0 && <span className="text-[9px] text-slate-400 font-bold uppercase">Sin datos</span>}
+                         {Object.entries(resumenMuros).sort((a,b)=>Number(a[0])-Number(b[0])).map(([num, kg]) => (
+                            <div key={num} className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-2">
+                               <span className="block text-[8px] font-black text-indigo-500 uppercase">Varilla #{num}</span>
+                               <span className="font-black text-indigo-700 text-sm">{kg.toLocaleString(undefined, {minimumFractionDigits: 2})} <span className="text-[8px]">kg</span></span>
+                            </div>
+                         ))}
+                      </div>
+                   </div>
+
+                </div>
+                <div className="w-full xl:w-[350px] bg-slate-900 p-6 rounded-3xl text-white shadow-lg relative overflow-hidden flex flex-col justify-center">
+                   <div className="absolute right-0 top-0 opacity-10 transform scale-150 -translate-y-4 translate-x-4"><Wrench size={100}/></div>
+                   <span className="block text-[10px] font-black text-blue-300 uppercase tracking-widest mb-2 relative z-10">Gran Total Acero ({globalReportLevel === 'todos' ? 'Global' : 'Nivel'})</span>
+                   <div className="flex items-baseline gap-2 relative z-10">
+                      <span className="text-4xl font-black text-white tracking-tighter">{totalGlobalAcero.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                      <span className="text-blue-400 font-black">kg</span>
+                   </div>
+                </div>
+             </div>
+          </div>
+        </div>
+      </div>
+    );
+  };

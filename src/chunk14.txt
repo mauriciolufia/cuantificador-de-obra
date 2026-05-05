@@ -1,0 +1,10 @@
+export default function App() {
+  const [currentView, setCurrentView] = useState('manager');
+  const [activeObra, setActiveObra] = useState(null);
+
+  if (currentView === 'workspace' && activeObra) {
+    return <ProjectWorkspace obraId={activeObra.id} onBack={() => { setCurrentView('manager'); setActiveObra(null); }} />;
+  }
+
+  return <ObraManager onSelectObra={(obra) => { setActiveObra(obra); setCurrentView('workspace'); }} />;
+}

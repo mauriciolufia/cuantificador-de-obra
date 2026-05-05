@@ -1,0 +1,157 @@
+  const addSteelItem = useCallback((structId) => { updateActiveEstructuras(prev => prev.map(s => { if (s.id !== structId) return s; let tramoSugerido = ''; const tipo = (s.tipo || '').toLowerCase(); if (['columna', 'dado'].includes(tipo) && parseFloat(s.alto) > 0) tramoSugerido = s.alto.toString(); else if (['trabe', 'nervadura'].includes(tipo) && parseFloat(s.largo) > 0) tramoSugerido = s.largo.toString(); return {...s, aceros: [...(s.aceros || []), { id: \`AC-\${Date.now()}\`, tipo: '', numVarilla: '4', anchoCalc: tramoSugerido, separacion: '', piezas: '1', longitud: '', ganchos: '', traslapes: '' }]}; })); }, [updateActiveEstructuras]);
+  const removeSteelItem = useCallback((structId, itemId) => updateActiveEstructuras(prev => prev.map(s => s.id === structId ? {...s, aceros: (s.aceros || []).filter(a => a.id !== itemId)} : s)), [updateActiveEstructuras]);
+
+  const renderSteelSubmodal = () => {
+    if (!activeSteelSubmodal) return null; const structure = estructuras.find(e => e.id === activeSteelSubmodal); if (!structure) return null;
+    const aceros = structure.aceros || []; const tiposAceroOpciones = getSteelTypesForElement(structure.tipo); const ePiezas = parseFloat(structure.piezas) || 1;
+    const resumenAcero = aceros.reduce((acc, a) => { const calc = calcAceroItem(a), num = a.numVarilla || '-'; if (!acc[num]) acc[num] = { ml: 0, kg: 0 }; acc[num].ml += (calc.ml * ePiezas); acc[num].kg += Math.round(calc.kg * ePiezas * 100) / 100; return acc; }, {});
+
+    return (
+      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1400px] overflow-hidden flex flex-col h-[90vh]">
+          <div className="bg-slate-800 text-white p-6 flex justify-between items-center shrink-0">
+             <div className="flex items-center gap-4"><div className="p-3 bg-slate-700 rounded-xl"><Wrench size={24} className="text-slate-300" /></div><div><h3 className="font-black uppercase tracking-widest text-lg flex items-center gap-3">Despiece de Acero de Refuerzo</h3><p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">{structure.tipo || 'Elemento'} • EJE: {structure.eje || '-'} • CLAVE: {structure.clave || '-'}</p></div></div>
+             <button onClick={() => setActiveSteelSubmodal(null)} className="hover:bg-white/20 p-2 rounded-full transition-colors"><X size={24}/></button>
+          </div>
+          <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
+            <div className="flex-1 p-4 sm:p-6 bg-slate-50 overflow-y-auto border-r border-slate-200">
+               <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm bg-white pb-2">
+                 <table className="text-left border-collapse text-[10px] md:text-xs table-fixed w-full">
+                    <thead className="bg-slate-100 text-slate-600 font-black uppercase tracking-tighter md:tracking-wider border-b-2 border-slate-200 leading-tight">
+                       <tr><th className="p-1 md:p-2 text-center border-r select-none" style={{ width: steelColWidths.no }}>No.</th><th className="p-1 md:p-2 border-r select-none" style={{ width: steelColWidths.tipo }}>Tipo Ref.</th><th className="p-1 md:p-2 border-r text-center select-none" style={{ width: steelColWidths.varilla }}># Var.</th><th className="p-1 md:p-2 border-r text-center bg-indigo-50/50 select-none" style={{ width: steelColWidths.tramo }}>Tramo</th><th className="p-1 md:p-2 border-r text-center bg-indigo-50/50 select-none" style={{ width: steelColWidths.separacion }}>Sep.</th><th className="p-1 md:p-2 border-r text-center bg-blue-50/50 select-none" style={{ width: steelColWidths.piezas }}>Pzas</th><th className="p-1 md:p-2 border-r text-center bg-blue-50/50 select-none" style={{ width: steelColWidths.longitud }}>Long.</th><th className="p-1 md:p-2 border-r text-center bg-emerald-50/50 select-none" style={{ width: steelColWidths.ganchos }}>Gan.</th><th className="p-1 md:p-2 border-r text-center bg-emerald-50/50 select-none" style={{ width: steelColWidths.traslapes }}>Tras.</th><th className="p-1 md:p-2 border-r text-center bg-slate-100 select-none" style={{ width: steelColWidths.mlPza }}>ML/Pza</th><th className="p-1 md:p-2 border-r text-right bg-slate-200 select-none" style={{ width: steelColWidths.totalMl }}>Tot.(ml)</th><th className="p-1 md:p-2 border-r text-right bg-slate-300 select-none" style={{ width: steelColWidths.totalKg }}>Tot.(kg)</th><th className="p-1 md:p-2 text-center select-none" style={{ width: steelColWidths.action }}></th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                       {aceros.length === 0 && <tr><td colSpan={13} className="p-6 text-center text-slate-400 font-bold uppercase">Sin despiece</td></tr>}
+                       {aceros.map((item, i) => {
+                          const calc = calcAceroItem(item), tipoMinuscula = (item.tipo || '').toLowerCase(), isVinculadoLargo = tipoMinuscula === 'bastones' || tipoMinuscula === 'refuerzo adicional', isLongitudinalManual = tipoMinuscula === 'longitudinal' && ['columna', 'dado', 'trabe', 'nervadura', 'contratrabe'].includes((structure.tipo || '').toLowerCase()), isPorPiezas = isVinculadoLargo || isLongitudinalManual;
+                          return (
+                             <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="p-1 border-r text-center font-black text-slate-400">{i+1}</td>
+                                <td className="p-0 border-r"><select className="w-full p-1 bg-transparent outline-none font-bold text-slate-700 uppercase cursor-pointer" value={item.tipo || ''} onChange={(ev) => updateSteelItem(structure.id, item.id, 'tipo', ev.target.value)}><option value="" disabled className="text-slate-300">Sel...</option>{tiposAceroOpciones.map(t => <option key={t} value={t}>{t}</option>)}</select></td>
+                                <td className="p-0 border-r"><select className="w-full p-1 bg-transparent outline-none font-black text-slate-800 text-center cursor-pointer" value={item.numVarilla || '4'} onChange={(ev) => updateSteelItem(structure.id, item.id, 'numVarilla', ev.target.value)}>{Object.keys(PESOS_VARILLA).map(n => <option key={n} value={n}>#{n}</option>)}</select></td>
+                                <td className="p-0 border-r bg-indigo-50/30">{isLongitudinalManual ? <div className="text-center font-black text-slate-400 uppercase cursor-not-allowed">N/A</div> : <DebouncedCell type="number" step="0.01" value={item.anchoCalc} onChange={v => updateSteelItem(structure.id, item.id, 'anchoCalc', v)} onDoubleClick={() => resetSteelFieldToDefault(structure.id, item.id, 'anchoCalc')} className="w-full p-1 bg-transparent outline-none text-center font-black text-indigo-900" placeholder="0.00" />}</td>
+                                <td className="p-0 border-r bg-indigo-50/30">{isPorPiezas ? <div className="text-center font-black text-slate-400 uppercase cursor-not-allowed">N/A</div> : <DebouncedCell type="number" step="0.01" value={item.separacion} onChange={v => updateSteelItem(structure.id, item.id, 'separacion', v)} className="w-full p-1 bg-transparent outline-none text-center font-black text-indigo-900" placeholder="-" />}</td>
+                                <td className="p-0 border-r bg-blue-50/30"><DebouncedCell type="number" min="1" value={item.piezas} onChange={v => updateSteelItem(structure.id, item.id, 'piezas', v)} onDoubleClick={() => resetSteelFieldToDefault(structure.id, item.id, 'piezas')} className="w-full p-1 bg-transparent outline-none text-center font-black text-blue-900" placeholder="1" /></td>
+                                <td className="p-0 border-r bg-blue-50/30">{isLongitudinalManual || isVinculadoLargo ? <div className="text-center font-black text-blue-800/60 bg-blue-50/50">{item.longitud ? parseFloat(item.longitud).toFixed(2) : '0.00'}</div> : <DebouncedCell type="number" step="0.01" value={item.longitud} onChange={v => updateSteelItem(structure.id, item.id, 'longitud', v)} onDoubleClick={() => resetSteelFieldToDefault(structure.id, item.id, 'longitud')} className="w-full p-1 bg-transparent outline-none text-center font-black text-blue-800" placeholder="0.00" />}</td>
+                                <td className="p-0 border-r bg-emerald-50/30"><DebouncedCell type="number" step="1" value={item.ganchos} onChange={v => updateSteelItem(structure.id, item.id, 'ganchos', v)} className="w-full p-1 bg-transparent outline-none text-center font-black text-emerald-800" placeholder="0" /></td>
+                                <td className="p-0 border-r bg-emerald-50/30"><DebouncedCell type="number" step="0.01" value={item.traslapes} onChange={v => updateSteelItem(structure.id, item.id, 'traslapes', v)} onDoubleClick={() => resetSteelFieldToDefault(structure.id, item.id, 'traslapes')} className="w-full p-1 bg-transparent outline-none text-center font-black text-emerald-800" placeholder="0.00" /></td>
+                                <td className="p-1 border-r text-center font-black text-slate-500 bg-slate-50">{calc.mlPorPieza > 0 ? calc.mlPorPieza.toFixed(2) : '-'}</td>
+                                <td className="p-1 border-r text-right font-black text-slate-600 bg-slate-100/50">{calc.ml > 0 ? calc.ml.toFixed(2) : '-'}</td>
+                                <td className="p-1 border-r text-right font-black text-blue-700 bg-slate-200/50">{calc.kg > 0 ? calc.kg.toFixed(2) : '-'}</td>
+                                <td className="p-1 text-center"><button onClick={() => removeSteelItem(structure.id, item.id)} className="text-slate-300 hover:text-red-500 transition-colors p-1"><Trash2 size={16}/></button></td>
+                             </tr>
+                          )
+                       })}
+                    </tbody>
+                 </table>
+                 <button onClick={() => addSteelItem(structure.id)} className="m-4 px-6 py-2 border-2 border-dashed border-slate-300 text-slate-500 font-black rounded-xl hover:bg-slate-200 text-xs">+ Agregar Refuerzo</button>
+               </div>
+               <div className="p-6 bg-slate-100 border-t border-slate-200 flex flex-col gap-4">
+                 {Object.keys(resumenAcero).length > 0 && (
+                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                     {Object.entries(resumenAcero).map(([num, data]) => (
+                       <div key={num} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                         <div className="flex justify-between items-end mb-2 border-b border-slate-100 pb-2"><span className="font-black text-lg text-slate-800">#{num}</span><div className="flex flex-col items-end"><span className="text-[10px] font-bold text-slate-400 uppercase">({PESOS_VARILLA[num]} kg/m)</span><span className="text-[8px] font-black text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded mt-0.5">X {ePiezas} PZAS</span></div></div>
+                         <div className="flex justify-between items-center text-sm mb-1"><span className="font-bold text-slate-500 uppercase text-[10px]">Total ML:</span><span className="font-black text-slate-700">{data.ml.toLocaleString(undefined, {minimumFractionDigits:2})} ml</span></div>
+                         <div className="flex justify-between items-center"><span className="font-bold text-slate-500 uppercase text-[10px]">Total KG:</span><span className="font-black text-blue-700 text-lg">{data.kg.toLocaleString(undefined, {minimumFractionDigits:2})} kg</span></div>
+                       </div>
+                     ))}
+                   </div>
+                 )}
+                 <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center mt-4 gap-4 bg-slate-200/50 p-2 rounded-3xl border border-slate-200">
+                   <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
+                       <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200 inline-flex flex-col items-start min-w-[140px]"><span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Peso (1 Pza)</span><div className="text-xl font-black text-slate-800 flex items-baseline gap-1">{calcAceroTotalKg(aceros, 1).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span className="text-[10px] text-slate-400">kg</span></div></div><div className="text-slate-400 font-black text-lg px-1">×</div>
+                       <div className="bg-indigo-50 p-3 rounded-2xl border border-indigo-100 shadow-sm inline-flex flex-col items-start min-w-[120px]"><span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Pzas (Est.)</span><div className="text-xl font-black text-indigo-900">{ePiezas}</div></div><div className="text-slate-400 font-black text-lg px-1">=</div>
+                       <div className="bg-slate-800 p-3 rounded-2xl text-white shadow-lg inline-flex flex-col items-start min-w-[160px]"><span className="text-[10px] font-black text-blue-300 uppercase tracking-widest mb-1">Gran Total</span><div className="text-2xl font-black flex items-baseline gap-1">{calcAceroTotalKg(aceros, ePiezas).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span className="text-xs text-slate-400">kg</span></div></div>
+                   </div>
+                   <button onClick={() => setActiveSteelSubmodal(null)} className="px-8 py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase shadow-md hover:bg-blue-500 transition-transform active:scale-95 shrink-0 h-full">Cerrar Despiece</button>
+                 </div>
+               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderWallSubmodal = () => {
+    if (!activeWallSubmodal) return null; const wall = muros.find(m => m.id === activeWallSubmodal.wallId); if (!wall) return null;
+    const isHueco = activeWallSubmodal.type === 'huecos'; const items = wall[activeWallSubmodal.type] || [];
+    return (
+      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col">
+          <div className={\`p-4 flex justify-between items-center text-white \${isHueco ? 'bg-red-800' : 'bg-orange-800'}\`}>
+             <h3 className="font-black uppercase tracking-widest text-sm flex items-center gap-3">{isHueco ? 'Deducción por Huecos' : 'Deducción por Columnas'} <span className="bg-black/20 px-2 py-1 rounded">Eje {wall.eje || '-'}</span></h3>
+             <button onClick={() => setActiveWallSubmodal(null)} className="hover:bg-white/20 p-1 rounded transition-colors"><X size={20}/></button>
+          </div>
+          <div className="p-6 bg-slate-50 flex-1 overflow-auto max-h-[60vh]">
+             <table className="w-full text-left border-collapse text-xs bg-white rounded-lg overflow-hidden shadow-sm">
+                <thead className="bg-slate-200 text-slate-600 font-bold uppercase"><tr><th className="p-3 border-b text-center w-12">No.</th>{isHueco && <th className="p-3 border-b">Tipo</th>}<th className="p-3 border-b text-center">{isHueco ? 'Largo (m)' : 'Ancho (m)'}</th><th className="p-3 border-b text-center">Alto (m)</th><th className="p-3 border-b text-center">Pzas</th><th className="p-3 border-b text-right bg-slate-300">Deducción (m2)</th><th className="p-3 border-b text-center w-12"></th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                   {items.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-slate-400 font-bold uppercase tracking-widest">Sin capturas en este rubro</td></tr>}
+                   {items.map((item, i) => {
+                      const ded = isHueco ? (parseFloat(item.largo)||0) * (parseFloat(item.alto)||0) * (parseFloat(item.piezas)||1) : (parseFloat(item.ancho)||0) * (parseFloat(wall.alto)||0) * (parseFloat(item.piezas)||1);
+                      return (
+                         <tr key={item.id} className="hover:bg-blue-50 transition-colors">
+                            <td className="p-3 border-r text-center font-black text-slate-400">{i+1}</td>
+                            {isHueco && <td className="p-1 border-r"><DebouncedCell value={item.tipo} onChange={v => updateWallSubItem(wall.id, activeWallSubmodal.type, item.id, 'tipo', v)} className="w-full p-2 bg-transparent outline-none font-bold text-slate-700 uppercase" placeholder="Ej. Puerta Principal" /></td>}
+                            <td className="p-1 border-r"><DebouncedCell value={isHueco ? item.largo : item.ancho} onChange={v => updateWallSubItem(wall.id, activeWallSubmodal.type, item.id, isHueco ? 'largo' : 'ancho', v)} className="w-full p-2 bg-transparent outline-none text-center font-bold text-blue-800" placeholder="0.00" /></td>
+                            <td className="p-3 border-r text-center bg-slate-50">{isHueco ? <DebouncedCell value={item.alto} onChange={v => updateWallSubItem(wall.id, activeWallSubmodal.type, item.id, 'alto', v)} className="w-full bg-transparent outline-none text-center font-bold text-blue-800" placeholder="0.00" /> : <span className="font-bold text-slate-500 bg-slate-200 px-3 py-1 rounded cursor-not-allowed" title="Heredado del Alto de Muro">{parseFloat(wall.alto||0).toFixed(2)}</span>}</td>
+                            <td className="p-1 border-r"><DebouncedCell value={item.piezas} onChange={v => updateWallSubItem(wall.id, activeWallSubmodal.type, item.id, 'piezas', v)} className="w-full p-2 bg-transparent outline-none text-center font-black text-lg text-slate-700" placeholder="1" /></td>
+                            <td className="p-3 border-r text-right font-black text-red-600 bg-red-50/50">{ded.toFixed(2)}</td>
+                            <td className="p-3 text-center"><button onClick={() => removeWallSubItem(wall.id, activeWallSubmodal.type, item.id)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={18}/></button></td>
+                         </tr>
+                      )
+                   })}
+                </tbody>
+             </table>
+             <button onClick={() => addWallSubItem(wall.id, activeWallSubmodal.type)} className="mt-4 px-6 py-3 border-2 border-dashed border-slate-300 text-slate-500 font-black rounded-xl hover:bg-slate-200 text-[10px] uppercase tracking-widest w-full">+ Añadir Fila de Deducción</button>
+          </div>
+          <div className="bg-slate-100 p-5 flex justify-end border-t border-slate-200"><button onClick={() => setActiveWallSubmodal(null)} className="px-8 py-3 bg-slate-800 text-white rounded-xl font-black text-[11px] uppercase tracking-[0.2em] shadow-lg hover:bg-slate-700 hover:scale-95 transition-transform">Guardar y Cerrar</button></div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCasetonSubmodal = () => {
+    if (!activeCasetonSubmodal) return null; const structure = estructuras.find(e => e.id === activeCasetonSubmodal); if (!structure) return null;
+    const items = structure.casetones || []; const ePiezas = parseFloat(structure.piezas) || 1;
+    return (
+      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[80vh]">
+          <div className="bg-sky-800 text-white p-6 flex justify-between items-center shrink-0">
+             <div className="flex items-center gap-4"><div className="p-3 bg-sky-700 rounded-xl"><Box size={24} className="text-sky-200" /></div><div><h3 className="font-black uppercase tracking-widest text-lg flex items-center gap-3">Desglose de Casetones</h3><p className="text-xs text-sky-300 font-bold uppercase tracking-wider mt-1">{structure.tipo || 'Elemento'} • EJE: {structure.eje || '-'} • CLAVE: {structure.clave || '-'}</p></div></div>
+             <button onClick={() => setActiveCasetonSubmodal(null)} className="hover:bg-white/20 p-2 rounded-full transition-colors"><X size={24}/></button>
+          </div>
+          <div className="p-6 bg-slate-50 flex-1 overflow-auto">
+             <table className="w-full text-left border-collapse text-xs bg-white rounded-xl overflow-hidden shadow-sm">
+                <thead className="bg-slate-200 text-slate-600 font-bold uppercase tracking-wider"><tr><th className="p-3 border-b text-center w-12">No.</th><th className="p-3 border-b">Clave</th><th className="p-3 border-b text-center">Largo (m)</th><th className="p-3 border-b text-center">Ancho (m)</th><th className="p-3 border-b text-center">Alto (m)</th><th className="p-3 border-b text-center">Pzas</th><th className="p-3 border-b text-right bg-slate-300">Vol. (m3)</th><th className="p-3 border-b text-center w-12"></th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                   {items.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-slate-400 font-bold uppercase tracking-widest">Sin casetones capturados</td></tr>}
+                   {items.map((item, i) => {
+                      const vol = (parseFloat(item.largo)||0) * (parseFloat(item.ancho)||0) * (parseFloat(item.alto)||0) * (parseFloat(item.piezas)||1);
+                      return (
+                         <tr key={item.id} className="hover:bg-sky-50 transition-colors">
+                            <td className="p-3 border-r text-center font-black text-slate-400">{i+1}</td>
+                            <td className="p-1 border-r"><DebouncedCell value={item.clave} onChange={v => updateCasetonItem(structure.id, item.id, 'clave', v)} className="w-full p-2 bg-transparent outline-none font-bold text-slate-700 uppercase" placeholder="Ej. CAS-01" /></td>
+                            <td className="p-1 border-r"><DebouncedCell type="number" step="0.01" value={item.largo} onChange={v => updateCasetonItem(structure.id, item.id, 'largo', v)} className="w-full p-2 bg-transparent outline-none text-center font-bold text-sky-800" placeholder="0.00" /></td>
+                            <td className="p-1 border-r"><DebouncedCell type="number" step="0.01" value={item.ancho} onChange={v => updateCasetonItem(structure.id, item.id, 'ancho', v)} className="w-full p-2 bg-transparent outline-none text-center font-bold text-sky-800" placeholder="0.00" /></td>
+                            <td className="p-1 border-r"><DebouncedCell type="number" step="0.01" value={item.alto} onChange={v => updateCasetonItem(structure.id, item.id, 'alto', v)} className="w-full p-2 bg-transparent outline-none text-center font-bold text-sky-800" placeholder="0.00" /></td>
+                            <td className="p-1 border-r"><DebouncedCell type="number" value={item.piezas} onChange={v => updateCasetonItem(structure.id, item.id, 'piezas', v)} className="w-full p-2 bg-transparent outline-none text-center font-black text-lg text-slate-700" placeholder="1" /></td>
+                            <td className="p-3 border-r text-right font-black text-sky-700 bg-sky-50/50">{(vol * ePiezas).toFixed(2)}</td>
+                            <td className="p-3 text-center"><button onClick={() => removeCasetonItem(structure.id, item.id)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={18}/></button></td>
+                         </tr>
+                      )
+                   })}
+                </tbody>
+             </table>
+             <button onClick={() => addCasetonItem(structure.id)} className="mt-4 px-6 py-3 border-2 border-dashed border-sky-300 text-sky-600 font-black rounded-xl hover:bg-sky-50 text-[10px] uppercase tracking-widest w-full">+ Añadir Casetón</button>
+          </div>
+          <div className="bg-slate-100 p-5 flex justify-between items-center border-t border-slate-200">
+             <div className="flex items-baseline gap-2"><span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Volumen Total Casetones:</span> <span className="text-2xl font-black text-sky-800">{getCasetonesTotalVol(items, ePiezas).toFixed(2)} <span className="text-xs text-sky-600">m3</span></span></div>
+             <button onClick={() => setActiveCasetonSubmodal(null)} className="px-8 py-3 bg-sky-800 text-white rounded-xl font-black text-[11px] uppercase tracking-[0.2em] shadow-lg hover:bg-sky-700 hover:scale-95 transition-transform">Guardar y Cerrar</button>
+          </div>
+        </div>
+      </div>
+    );
+  };

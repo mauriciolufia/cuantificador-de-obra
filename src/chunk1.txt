@@ -1,0 +1,417 @@
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { 
+  Plus, Trash2, Settings, ChevronRight, ChevronLeft, Layers, LayoutDashboard, 
+  X, ListPlus, CheckSquare, Square, AlertCircle, Printer, FileDown, 
+  Clipboard, ClipboardPaste, FolderPlus, Building2, Box, Wrench, Copy, FileSpreadsheet, Search 
+} from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
+
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
+const auth = app ? getAuth(app) : null;
+const db = app ? getFirestore(app) : null;
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+const PESOS_VARILLA = { '3': 0.557, '4': 0.996, '5': 1.554, '6': 2.239, '8': 3.975, '10': 6.225 };
+
+const getSteelTypesForElement = (t) => {
+  t = (t || '').toLowerCase();
+  if (t === 'muro') return ['Vertical', 'Horizontal', 'Refuerzo Adicional'];
+  if (t === 'losa' || t === 'losa nervada' || t.includes('zapata')) return ['Longitudinal', 'Transversal', 'Bastones'];
+  if (t === 'columna' || t === 'dado') return ['Longitudinal', 'Estribos', 'Grapas'];
+  if (['trabe', 'nervadura', 'contratrabe'].includes(t)) return ['Longitudinal', 'Bastones', 'Estribos'];
+  return ['Principal', 'Secundario', 'Estribos'];
+};
+
+const getEffectiveLargo = (r) => { 
+  let l = parseFloat(r.largo) || 0; 
+  const a = parseFloat(r.ancho) || 0; 
+  const tipo = (r.tipo || '').toLowerCase(); 
+  if (r.i && ['trabe', 'contratrabe', 'zapata corrida'].includes(tipo)) l = Math.max(0, l - (a / 2)); 
+  return l; 
+};
+
+const getNextClaveValue = (lastClave) => { 
+  if (!lastClave) return ''; 
+  const match = lastClave.match(/(.*?)(\d+)$/); 
+  if (!match) return lastClave; 
+  return match[1] + (parseInt(match[2], 10) + 1).toString().padStart(match[2].length, '0'); 
+};
+
+const exportExcelFile = (content, filename, includeBOM = true) => { 
+  const blob = new Blob([includeBOM ? '\ufeff' + content : content], { type: 'application/vnd.ms-excel' + (includeBOM ? ';charset=utf-8' : '') }); 
+  const url = URL.createObjectURL(blob); 
+  const link = document.createElement('a'); 
+  link.href = url; 
+  link.download = filename; 
+  link.click(); 
+  URL.revokeObjectURL(url); 
+};
+
+const exportFormattedExcel = (tableHtml, filename) => {
+  const template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style> table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10px; margin-bottom: 20px; } th, td { border: 1px solid #cbd5e1; padding: 6px; vertical-align: middle; } th { font-weight: bold; text-align: center; } </style></head><body>${tableHtml}</body></html>`;
+  const blob = new Blob(['\ufeff' + template], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename.endsWith('.xls') ? filename : filename + '.xls';
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+function LoadingScreen({ text }) {
+  return (
+    <div className="min-h-screen bg-[#fcfdfe] flex flex-col items-center justify-center p-8">
+      <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-6"></div>
+      <h2 className="text-xl font-black text-slate-800 uppercase tracking-widest animate-pulse">{text}</h2>
+      <p className="text-xs text-slate-400 mt-4 uppercase tracking-widest">Sincronizando con la nube...</p>
+    </div>
+  );
+}
+
+const usePersistentState = (key, initialValue, user) => { 
+  const [state, setState] = useState(() => {
+     const localData = localStorage.getItem(key);
+     if (localData) {
+        try { 
+           const parsed = JSON.parse(localData);
+           return typeof initialValue === 'object' && !Array.isArray(initialValue) ? { ...initialValue, ...parsed } : parsed;
+        } catch(e) { return initialValue; }
+     }
+     return initialValue;
+  });
+  const [isLoaded, setIsLoaded] = useState(false);
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
+
+  useEffect(() => {
+    if (!user || !db) { setIsLoaded(true); return; }
+    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'global', 'settings');
+    getDoc(docRef).then(snap => {
+      if (snap.exists() && snap.data()[key] !== undefined) {
+        const fetchedVal = snap.data()[key];
+        setState(prev => typeof initialValue === 'object' && !Array.isArray(initialValue) ? { ...prev, ...fetchedVal } : fetchedVal);
+      }
+      setIsLoaded(true);
+    }).catch(e => { console.error(e); setIsLoaded(true); });
+  }, [key, user]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    localStorage.setItem(key, JSON.stringify(state)); 
+    if (!user || !db) return;
+    const timeout = setTimeout(() => {
+       const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'global', 'settings');
+       setDoc(docRef, { [key]: state }, { merge: true }).catch(e => console.error(e));
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [state, isLoaded, key, user]);
+
+  useEffect(() => {
+     const handleVisibility = () => {
+        if (document.visibilityState === 'hidden' && user && db) {
+           const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'global', 'settings');
+           setDoc(docRef, { [key]: stateRef.current }, { merge: true });
+        }
+     };
+     window.addEventListener('visibilitychange', handleVisibility);
+     return () => window.removeEventListener('visibilitychange', handleVisibility);
+  }, [key, user]);
+
+  return [state, setState, isLoaded];
+};
+
+const useProjectState = (projectId, baseKey, initialValue, user) => {
+  const localKey = `xdifica_proj_${projectId}_${baseKey}`;
+  const [state, setState] = useState(() => {
+     const localData = localStorage.getItem(localKey);
+     if (localData) {
+        try { 
+           const parsed = JSON.parse(localData);
+           return typeof initialValue === 'object' && !Array.isArray(initialValue) ? { ...initialValue, ...parsed } : parsed;
+        } catch(e) { return initialValue; }
+     }
+     return initialValue;
+  });
+  const [isLoaded, setIsLoaded] = useState(false);
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
+
+  useEffect(() => {
+    if (!user || !db) { setIsLoaded(true); return; }
+    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'projects', projectId);
+    getDoc(docRef).then(snap => {
+      if (snap.exists() && snap.data()[baseKey] !== undefined) {
+        const fetchedVal = snap.data()[baseKey];
+        setState(prev => typeof initialValue === 'object' && !Array.isArray(initialValue) ? { ...prev, ...fetchedVal } : fetchedVal);
+      }
+      setIsLoaded(true);
+    }).catch(e => { console.error(e); setIsLoaded(true); });
+  }, [projectId, baseKey, user]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    localStorage.setItem(localKey, JSON.stringify(state)); 
+    if (!user || !db) return;
+    const timeout = setTimeout(() => {
+       const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'projects', projectId);
+       setDoc(docRef, { [baseKey]: state }, { merge: true }).catch(e => console.error(e));
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [state, isLoaded, projectId, baseKey, user]);
+
+  useEffect(() => {
+     const handleVisibility = () => {
+        if (document.visibilityState === 'hidden' && user && db) {
+           const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'projects', projectId);
+           setDoc(docRef, { [baseKey]: stateRef.current }, { merge: true });
+        }
+     };
+     window.addEventListener('visibilitychange', handleVisibility);
+     return () => window.removeEventListener('visibilitychange', handleVisibility);
+  }, [projectId, baseKey, user]);
+
+  return [state, setState, isLoaded];
+};
+
+const DebouncedCell = ({ value, onChange, onDoubleClick, title, isTextArea = false, className = "", rows = 1, placeholder = "", readOnly = false, type="text", min, step }) => {
+  const formatValue = (val) => { 
+    if (val === null || val === undefined) return ''; 
+    if (type === 'number' && step === '0.01' && val !== '') { 
+      const parsed = parseFloat(val); 
+      return isNaN(parsed) ? '' : parsed.toFixed(2); 
+    } 
+    return val; 
+  };
+  const [localValue, setLocalValue] = useState(formatValue(value));
+  useEffect(() => { setLocalValue(formatValue(value)); }, [value, type, step]);
+  const handleBlur = () => { 
+    let finalValue = localValue; 
+    if (type === 'number' && step === '0.01' && finalValue !== '') { 
+      const parsed = parseFloat(finalValue); 
+      if (!isNaN(parsed)) { finalValue = parsed.toFixed(2); setLocalValue(finalValue); } 
+    } 
+    if (finalValue !== value) onChange(finalValue); 
+  };
+  if (isTextArea) return <textarea className={className} rows={rows} value={localValue !== undefined ? localValue : ''} onChange={(e) => setLocalValue(e.target.value)} onBlur={handleBlur} onFocus={(e) => e.target.select()} onDoubleClick={onDoubleClick} title={title} placeholder={placeholder} readOnly={readOnly} autoComplete="off" spellCheck="false" />;
+  return <input type={type} min={min} step={step} className={className} value={localValue !== undefined ? localValue : ''} onChange={(e) => setLocalValue(e.target.value)} onBlur={handleBlur} onFocus={(e) => e.target.select()} onDoubleClick={onDoubleClick} onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }} title={title} placeholder={placeholder} readOnly={readOnly} autoComplete="off" spellCheck="false" />;
+};
+
+const GeneratorRow = React.memo(({ row, index, updateRow, deleteRow, calculateVolume, isSelected, onToggleSelect }) => {
+  const [localEje, setLocalEje] = useState(row.eje || ''); 
+  const [localClave, setLocalClave] = useState(row.claveLoc || '');
+  useEffect(() => { setLocalEje(row.eje || ''); setLocalClave(row.claveLoc || ''); }, [row.eje, row.claveLoc]);
+  const handleBlur = (field, value) => { if (row[field] !== value) updateRow(row.id, field, value); };
+  return (
+    <tr className={\`transition-colors \${isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50'}\`}>
+      <td className="px-2 py-1.5 border-r border-slate-300 text-center relative"><div className="flex items-center justify-center gap-2"><button onClick={() => onToggleSelect(row.id)} className={\`\${isSelected ? 'text-blue-600' : 'text-slate-300 hover:text-slate-400'}\`}>{isSelected ? <CheckSquare size={16} /> : <Square size={16} />}</button><span className="font-black text-slate-300 text-[10px] w-4">{index + 1}</span></div></td>
+      <td className="px-2 py-1.5 border-r border-slate-300"><div className="flex gap-2 group/row"><input placeholder="Eje/Ref" className="w-[40%] p-1.5 bg-white border border-slate-200 rounded text-[11px] font-bold uppercase outline-none focus:ring-1 focus:ring-blue-500" value={localEje} onChange={(e) => setLocalEje(e.target.value)} onBlur={(e) => handleBlur('eje', e.target.value)} /><input placeholder="Clave" className="w-[60%] p-1.5 bg-white border border-slate-200 rounded text-[11px] font-bold uppercase outline-none focus:ring-1 focus:ring-blue-500" value={localClave} onChange={(e) => setLocalClave(e.target.value)} onBlur={(e) => handleBlur('claveLoc', e.target.value)} /></div></td>
+      <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black"><DebouncedCell type="number" step="0.01" className="w-full p-1 bg-transparent text-center outline-none text-[11px]" value={row.largo} onChange={(v) => updateRow(row.id, 'largo', v)} /></td>
+      <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black"><DebouncedCell type="number" step="0.01" className="w-full p-1 bg-transparent text-center outline-none text-[11px]" value={row.ancho} onChange={(v) => updateRow(row.id, 'ancho', v)} /></td>
+      <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black"><DebouncedCell type="number" step="0.01" className="w-full p-1 bg-transparent text-center outline-none text-[11px]" value={row.alto} onChange={(v) => updateRow(row.id, 'alto', v)} /></td>
+      <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black"><DebouncedCell type="number" className="w-full p-1 bg-transparent text-center outline-none text-[11px]" value={row.piezas} onChange={(v) => updateRow(row.id, 'piezas', v)} /></td>
+      <td className="px-2 py-1.5 border-r border-slate-300 text-right pr-4 font-black bg-slate-50/50 text-blue-900 text-[12px]">{calculateVolume(row).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td className="px-2 py-1.5 text-center"><button onClick={() => deleteRow(row.id)} className="text-slate-300 hover:text-red-500 transition-colors p-1"><Trash2 size={16} /></button></td>
+    </tr>
+  );
+});
+
+function ProjectWorkspace({ projectId, onBack, onUpdateMetadata, user }) {
+  const [obraInfo, setObraInfo, l1] = useProjectState(projectId, 'obraInfo', { nombre: "NUEVA OBRA", ubicacion: "", fecha: new Date().toLocaleDateString() }, user);
+  const [niveles, setNiveles, l2] = useProjectState(projectId, 'niveles', [ { id: 'n1', nombre: 'N1 +1.00' } ], user);
+  const [partidas, setPartidas, l3] = useProjectState(projectId, 'partidas', [], user);
+  const [catalogoConceptos, setCatalogoConceptos, l9] = useProjectState(projectId, 'catalogoConceptos', [], user);
+  
+  const [colWidths, setColWidths, l4] = usePersistentState('xdifica_colWidths_v4', { select: 30, id: 70, clave: 45, cc: 40, justificacion: 120, descripcion: 200, unidad: 50, niveles: 65, totales: 75 }, user);
+  const [wallColWidths, setWallColWidths, l5] = usePersistentState('xdifica_wallColWidths', { no: 40, eje: 60, clave: 80, largo: 60, ancho: 60, alto: 60, bruto: 70, huecos: 70, castillos: 70, neta: 80, aplanadoC1: 90, aplanadoC2: 90, recubrimientoC1: 90, recubrimientoC2: 90, action: 40 }, user);
+  const [structColWidths, setStructColWidths, l6] = usePersistentState('xdifica_structColWidths', { select: 40, no: 40, eje: 70, clave: 80, tipo: 140, i: 30, largo: 80, ancho: 80, alto: 80, piezas: 60, concreto: 100, cimbra: 100, cimbraFrontera: 100, acero: 100, action: 90 }, user);
+  const [steelColWidths, setSteelColWidths, l7] = usePersistentState('xdifica_steelColWidths', { no: 35, tipo: 120, varilla: 60, tramo: 80, separacion: 60, piezas: 55, longitud: 75, ganchos: 65, traslapes: 65, mlPza: 70, totalMl: 70, totalKg: 70, action: 40 }, user);
+  const [genColWidths, setGenColWidths, l8] = usePersistentState('xdifica_genColWidths', { select: 60, localizacion: 350, largo: 100, ancho: 100, alto: 100, piezas: 90, volumen: 130, action: 80 }, user);
+  const [catColWidths, setCatColWidths, l10] = usePersistentState('xdifica_catColWidths', { id: 100, clave: 80, cc: 80, justificacion: 150, descripcion: 350, unidad: 80, action: 50 }, user);
+
+  const [activePartidaId, setActivePartidaId] = useState(null);
+  const [activeLevelId, setActiveLevelId] = useState(null);
+
+  const [editingModal, setEditingModal] = useState(null);
+  const [activeLevelReport, setActiveLevelReport] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showWallGenerator, setShowWallGenerator] = useState(false);
+  const [showStructureGenerator, setShowStructureGenerator] = useState(false);
+  const [showCatalogo, setShowCatalogo] = useState(false);
+
+  const [activeWallSubmodal, setActiveWallSubmodal] = useState(null); 
+  const [activeSteelSubmodal, setActiveSteelSubmodal] = useState(null);
+  const [activeCasetonSubmodal, setActiveCasetonSubmodal] = useState(null);
+  const [conceptSelectorFor, setConceptSelectorFor] = useState(null);
+  const [conceptSearchTerm, setConceptSearchTerm] = useState('');
+
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [clipboardRows, setClipboardRows] = useState(null);
+  const [copyStatus, setCopyStatus] = useState('');
+  const [copiedStructureRow, setCopiedStructureRow] = useState(null);
+  const [selectedGeneratorRows, setSelectedGeneratorRows] = useState([]);
+  const [selectedStructureRows, setSelectedStructureRows] = useState([]);
+  const [copiedStructureRowsList, setCopiedStructureRowsList] = useState(null);
+  const [selectedWallRows, setSelectedWallRows] = useState([]);
+  const [copiedWallRowsList, setCopiedWallRowsList] = useState(null);
+  const [copiedWallRow, setCopiedWallRow] = useState(null);
+  const [showGlobalSteelReport, setShowGlobalSteelReport] = useState(false);
+  const [globalReportLevel, setGlobalReportLevel] = useState('todos');
+
+  const isFullyLoaded = l1 && l2 && l3 && l4 && l5 && l6 && l7 && l8 && l9 && l10;
+
+  useEffect(() => {
+    if (l2 && niveles.length > 0 && !niveles.find(n => n.id === activeLevelId)) {
+      setActiveLevelId(niveles[0].id);
+    }
+  }, [niveles, activeLevelId, l2]);
+
+  const activePartida = useMemo(() => partidas.find(p => p.id === activePartidaId), [partidas, activePartidaId]);
+  const conceptos = activePartida ? activePartida.conceptos : [];
+  const generadores = activePartida ? activePartida.generadores : {};
+  const murosData = activePartida ? (activePartida.muros || {}) : {};
+  const muros = Array.isArray(murosData) ? murosData : (murosData[activeLevelId] || []);
+  const estructurasData = activePartida ? (activePartida.estructuras || {}) : {};
+  const estructuras = Array.isArray(estructurasData) ? estructurasData : (estructurasData[activeLevelId] || []);
+
+  const todasLasEstructuras = useMemo(() => {
+    if (!activePartida || !activePartida.estructuras) return []; const data = activePartida.estructuras;
+    if (Array.isArray(data)) return data.map(e => ({ ...e, _nivelInfo: 'General', _nivelId: 'general' }));
+    let all = [];
+    Object.keys(data).forEach(lvlId => { const nivelName = niveles.find(n => n.id === lvlId)?.nombre || lvlId; all = [...all, ...(data[lvlId] || []).map(e => ({ ...e, _nivelInfo: nivelName, _nivelId: lvlId }))]; });
+    return all;
+  }, [activePartida, niveles]);
+
+  // Actualizadores de estado
+  const updateActiveConceptos = useCallback((upd) => setPartidas(prev => prev.map(p => p.id === activePartidaId ? { ...p, conceptos: typeof upd === 'function' ? upd(p.conceptos) : upd } : p)), [activePartidaId, setPartidas]);
+  const updateActiveGeneradores = useCallback((upd) => setPartidas(prev => prev.map(p => p.id === activePartidaId ? { ...p, generadores: typeof upd === 'function' ? upd(p.generadores) : upd } : p)), [activePartidaId, setPartidas]);
+  const updateActiveMuros = useCallback((upd) => { setPartidas(prev => prev.map(p => { if (p.id !== activePartidaId) return p; const data = p.muros || {}; const isArr = Array.isArray(data); const nextData = typeof upd === 'function' ? upd(isArr ? data : (data[activeLevelId] || [])) : upd; return { ...p, muros: isArr ? { [activeLevelId]: nextData } : { ...data, [activeLevelId]: nextData } }; })); }, [activePartidaId, activeLevelId, setPartidas]);
+  const updateActiveEstructuras = useCallback((upd) => { setPartidas(prev => prev.map(p => { if (p.id !== activePartidaId) return p; const data = p.estructuras || {}; const isArr = Array.isArray(data); const nextData = typeof upd === 'function' ? upd(isArr ? data : (data[activeLevelId] || [])) : upd; return { ...p, estructuras: isArr ? { [activeLevelId]: nextData } : { ...data, [activeLevelId]: nextData } }; })); }, [activePartidaId, activeLevelId, setPartidas]);
+
+  const handleCreatePartida = () => setPartidas(prev => [...prev, { id: \`P-\${Date.now().toString(36).toUpperCase()}\`, nombre: "NUEVA PARTIDA", conceptos: [], generadores: {}, muros: {}, estructuras: {} }]);
+  const handleDeletePartida = (id) => { if (window.confirm("¿Eliminar partida?")) setPartidas(prev => prev.filter(p => p.id !== id)); };
+  const openPartida = (id) => { setActivePartidaId(id); setSelectedIds([]); setShowSettings(false); setShowWallGenerator(false); setShowStructureGenerator(false); setShowCatalogo(false); setActiveWallSubmodal(null); setActiveSteelSubmodal(null); setActiveCasetonSubmodal(null); setActiveLevelReport(null); };
+
+  const resizingRef = useRef(null);
+  const startResizing = (colId, e, type = 'summary') => { e.preventDefault(); let w = 0; if (type === 'summary') w = colWidths[colId]; else if (type === 'walls') w = wallColWidths[colId]; else if (type === 'structures') w = structColWidths[colId]; else if (type === 'steel') w = steelColWidths[colId]; else if (type === 'generator') w = genColWidths[colId]; else if (type === 'catalog') w = catColWidths[colId]; resizingRef.current = { colId, startX: e.pageX, startWidth: w, type }; document.addEventListener('mousemove', handleMouseMove); document.addEventListener('mouseup', stopResizing); };
+  const handleMouseMove = useCallback((e) => { if (!resizingRef.current) return; const { colId, startX, startWidth, type } = resizingRef.current; const newWidth = Math.max(30, startWidth + (e.pageX - startX)); if (type === 'summary') setColWidths(p => ({ ...p, [colId]: newWidth })); else if (type === 'walls') setWallColWidths(p => ({ ...p, [colId]: newWidth })); else if (type === 'structures') setStructColWidths(p => ({ ...p, [colId]: newWidth })); else if (type === 'steel') setSteelColWidths(p => ({ ...p, [colId]: newWidth })); else if (type === 'generator') setGenColWidths(p => ({ ...p, [colId]: newWidth })); else if (type === 'catalog') setCatColWidths(p => ({ ...p, [colId]: newWidth })); }, [setColWidths, setWallColWidths, setStructColWidths, setSteelColWidths, setGenColWidths, setCatColWidths]);
+  const stopResizing = useCallback(() => { resizingRef.current = null; document.removeEventListener('mousemove', handleMouseMove); document.removeEventListener('mouseup', stopResizing); }, [handleMouseMove]);
+
+  const calculateVolumeRow = useCallback((row) => { const l = parseFloat(row.largo) || 0, a = parseFloat(row.ancho) || 0, h = parseFloat(row.alto) || 0, p = parseFloat(row.piezas) || 1; if (l === 0 && a === 0 && h === 0) return 0; return Math.round((l>0?l:1)*(a>0?a:1)*(h>0?h:1)*p * 100) / 100; }, []);
+  const getVolumenNivel = (idC, idN) => generadores[idC]?.[idN]?.rows?.reduce((acc, item) => acc + calculateVolumeRow(item), 0) || 0;
+  const getTotalConcepto = (idC) => niveles.reduce((acc, n) => acc + getVolumenNivel(idC, n.id), 0);
+
+  const updateConceptoField = useCallback((id, field, value) => updateActiveConceptos(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c)), [updateActiveConceptos]);
+  
+  const updateConceptoId = useCallback((oldId, newId) => { 
+    if (oldId === newId || !newId.trim()) return; 
+    updateActiveConceptos(prev => {
+       if (prev.some(c => c.id === newId)) return prev;
+       const matched = catalogoConceptos.find(cat => cat.id === newId);
+       return prev.map(c => c.id === oldId ? { 
+          ...c, 
+          id: newId, 
+          ...(matched ? { clave: matched.clave||'', cc: matched.cc||'', justificacion: matched.justificacion||'', descripcion: matched.descripcion||'', unidad: matched.unidad||'m2' } : {}) 
+       } : c);
+    }); 
+    updateActiveGeneradores(prev => { 
+      if (!prev[oldId]) return prev; 
+      const newState = { ...prev }; newState[newId] = newState[oldId]; delete newState[oldId]; 
+      return newState; 
+    }); 
+    setSelectedIds(prev => prev.map(id => id === oldId ? newId : id)); 
+  }, [updateActiveConceptos, updateActiveGeneradores, catalogoConceptos]);
+
+  const updateRowGenerador = useCallback((rowId, field, value) => { if (!editingModal) return; const { concepto, nivel } = editingModal; updateActiveGeneradores(prev => { const currentConcept = prev[concepto.id] || {}, currentLevel = currentConcept[nivel.id] || { rows: [] }; return { ...prev, [concepto.id]: { ...currentConcept, [nivel.id]: { ...currentLevel, rows: currentLevel.rows.map(r => r.id === rowId ? { ...r, [field]: value } : r) } } }; }); }, [editingModal, updateActiveGeneradores]);
+  const deleteRowGenerador = useCallback((rowId) => { if (!editingModal) return; const { concepto, nivel } = editingModal; updateActiveGeneradores(prev => { const currentConcept = prev[concepto.id] || {}, currentLevel = currentConcept[nivel.id]; if (!currentLevel) return prev; return { ...prev, [concepto.id]: { ...currentConcept, [nivel.id]: { ...currentLevel, rows: currentLevel.rows.filter(r => !selectedGeneratorRows.includes(r.id)) } } }; }); setSelectedGeneratorRows(prev => prev.filter(id => id !== rowId)); }, [editingModal, updateActiveGeneradores, selectedGeneratorRows]);
+
+  const handlePasteImage = (e) => { const items = e.clipboardData.items; for (let i = 0; i < items.length; i++) { if (items[i].type.indexOf("image") !== -1) { const reader = new FileReader(); reader.onload = (event) => { if (!editingModal) return; updateActiveGeneradores(prev => { const currentConcept = prev[editingModal.concepto.id] || {}, currentLevel = currentConcept[editingModal.nivel.id] || { rows: [], image: null }; return { ...prev, [editingModal.concepto.id]: { ...currentConcept, [editingModal.nivel.id]: { ...currentLevel, image: event.target.result } } }; }); }; reader.readAsDataURL(items[i].getAsFile()); } } };
+
+  const copyRowsToExcelClipboard = useCallback((rows) => {
+    const tsvString = rows.map(r => {
+      const rawL = parseFloat(r.largo), rawA = parseFloat(r.ancho), rawH = parseFloat(r.alto), rawP = parseFloat(r.piezas);
+      const valL = !isNaN(rawL) && rawL !== 0 ? Math.abs(rawL) : 1; const valA = !isNaN(rawA) && rawA !== 0 ? Math.abs(rawA) : 1; const valH = !isNaN(rawH) && rawH !== 0 ? Math.abs(rawH) : 1; const valP = !isNaN(rawP) && rawP !== 0 ? rawP : 1; 
+      const vol = valL * valA * valH * valP;
+      const formatDim = (val, isPieza = false) => { if (isNaN(val) || val === 0) return isPieza ? '1.00' : ''; return val.toFixed(2); };
+      const claveCompleta = [r.eje, r.claveLoc].filter(Boolean).join(' - ');
+      return \`\${claveCompleta}\\t\${formatDim(rawL)}\\t\${formatDim(rawA)}\\t\${formatDim(rawH)}\\t\${formatDim(rawP, true)}\\t\${vol.toFixed(2)}\`;
+    }).join('\\n');
+    const textArea = document.createElement("textarea"); textArea.value = tsvString; textArea.style.position = "fixed"; document.body.appendChild(textArea); textArea.focus(); textArea.select(); try { document.execCommand('copy'); } catch (err) {} document.body.removeChild(textArea);
+  }, []);
+
+  const handleCopyRows = () => { if (!editingModal) return; const allRows = generadores[editingModal.concepto.id]?.[editingModal.nivel.id]?.rows || []; const rowsToCopy = selectedGeneratorRows.length > 0 ? allRows.filter(r => selectedGeneratorRows.includes(r.id)) : allRows; if (rowsToCopy.length === 0) return; setClipboardRows(rowsToCopy); copyRowsToExcelClipboard(rowsToCopy); setCopyStatus('copied'); setTimeout(() => setCopyStatus(''), 2000); };
+  const handlePasteRows = () => {
+    if (!editingModal || !clipboardRows || clipboardRows.length === 0) return; const { concepto, nivel } = editingModal;
+    updateActiveGeneradores(prev => {
+      const currentConcept = prev[concepto.id] || {}; const currentLevel = currentConcept[nivel.id] || { rows: [] }; let updatedRows = [...currentLevel.rows];
+      if (selectedGeneratorRows.length > 0) {
+        const sortedSelectedIds = updatedRows.filter(r => selectedGeneratorRows.includes(r.id)).map(r => r.id);
+        updatedRows = updatedRows.map(row => { if (selectedGeneratorRows.includes(row.id)) { const clipData = clipboardRows.length === 1 ? clipboardRows[0] : clipboardRows[sortedSelectedIds.indexOf(row.id) % clipboardRows.length]; return { ...row, eje: clipData.eje !== undefined ? clipData.eje : row.eje, claveLoc: clipData.claveLoc !== undefined ? clipData.claveLoc : row.claveLoc, largo: clipData.largo !== undefined ? clipData.largo : row.largo, ancho: clipData.ancho !== undefined ? clipData.ancho : row.ancho, alto: clipData.alto !== undefined ? clipData.alto : row.alto, piezas: clipData.piezas !== undefined ? clipData.piezas : row.piezas }; } return row; });
+      } else { const newRows = clipboardRows.map((row, i) => ({ ...row, id: \`R-\${Date.now()}-\${i}-\${Math.random().toString(36).substr(2, 5)}\` })); updatedRows = [...updatedRows, ...newRows]; }
+      return { ...prev, [editingModal.concepto.id]: { ...currentConcept, [editingModal.nivel.id]: { ...currentLevel, rows: updatedRows } } };
+    });
+  };
+
+  const toggleAllGeneratorRows = () => { if (!editingModal) return; const allRows = generadores[editingModal.concepto.id]?.[editingModal.nivel.id]?.rows || []; if (selectedGeneratorRows.length === allRows.length && allRows.length > 0) setSelectedGeneratorRows([]); else setSelectedGeneratorRows(allRows.map(r => r.id)); };
+  const toggleStructureRow = (rowId) => setSelectedStructureRows(prev => prev.includes(rowId) ? prev.filter(id => id !== rowId) : [...prev, rowId]);
+  const toggleAllStructureRows = () => { if (selectedStructureRows.length === estructuras.length && estructuras.length > 0) setSelectedStructureRows([]); else setSelectedStructureRows(estructuras.map(e => e.id)); };
+  const toggleWallRow = (rowId) => setSelectedWallRows(prev => prev.includes(rowId) ? prev.filter(id => id !== rowId) : [...prev, rowId]);
+  const toggleAllWallRows = () => { if (selectedWallRows.length === muros.length && muros.length > 0) setSelectedWallRows([]); else setSelectedWallRows(muros.map(m => m.id)); };
+
+  const handleCopySelectedWalls = () => { const rowsToCopy = selectedWallRows.length > 0 ? muros.filter(r => selectedWallRows.includes(r.id)) : muros; if (rowsToCopy.length === 0) return; setCopiedWallRowsList(rowsToCopy); setCopyStatus('copied-wall-list'); setTimeout(() => setCopyStatus(''), 2000); };
+  const handlePasteSelectedWalls = () => {
+    if (!copiedWallRowsList || copiedWallRowsList.length === 0) return;
+    updateActiveMuros(prev => {
+      let updatedRows = [...prev];
+      if (selectedWallRows.length > 0) {
+        const sortedSelectedIds = updatedRows.filter(r => selectedWallRows.includes(r.id)).map(r => r.id);
+        updatedRows = updatedRows.map(row => { if (selectedWallRows.includes(row.id)) { const clipData = copiedWallRowsList.length === 1 ? copiedWallRowsList[0] : copiedWallRowsList[sortedSelectedIds.indexOf(row.id) % copiedWallRowsList.length]; const clonedHuecos = (clipData.huecos || []).map(h => ({ ...h, id: \`H-\${Date.now()}-\${Math.random().toString(36).substr(2, 5)}\` })); const clonedCastillos = (clipData.castillos || []).map(c => ({ ...c, id: \`C-\${Date.now()}-\${Math.random().toString(36).substr(2, 5)}\` })); return { ...row, eje: clipData.eje !== undefined ? clipData.eje : row.eje, clave: clipData.clave !== undefined ? clipData.clave : row.clave, largo: clipData.largo !== undefined ? clipData.largo : row.largo, ancho: clipData.ancho !== undefined ? clipData.ancho : row.ancho, alto: clipData.alto !== undefined ? clipData.alto : row.alto, tipoAplanadoC1: clipData.tipoAplanadoC1 !== undefined ? clipData.tipoAplanadoC1 : row.tipoAplanadoC1, tipoAplanadoC2: clipData.tipoAplanadoC2 !== undefined ? clipData.tipoAplanadoC2 : row.tipoAplanadoC2, tipoRecubrimientoC1: clipData.tipoRecubrimientoC1 !== undefined ? clipData.tipoRecubrimientoC1 : row.tipoRecubrimientoC1, tipoRecubrimientoC2: clipData.tipoRecubrimientoC2 !== undefined ? clipData.tipoRecubrimientoC2 : row.tipoRecubrimientoC2, huecos: clonedHuecos, castillos: clonedCastillos }; } return row; });
+      } else { const newRows = copiedWallRowsList.map((row, i) => { const clonedHuecos = (row.huecos || []).map(h => ({ ...h, id: \`H-\${Date.now()}-\${i}-\${Math.random().toString(36).substr(2, 5)}\` })); const clonedCastillos = (row.castillos || []).map(c => ({ ...c, id: \`C-\${Date.now()}-\${i}-\${Math.random().toString(36).substr(2, 5)}\` })); return { ...row, id: \`M-\${Date.now()}-\${i}-\${Math.random().toString(36).substr(2, 5)}\`, huecos: clonedHuecos, castillos: clonedCastillos }; }); updatedRows = [...updatedRows, ...newRows]; }
+      return updatedRows;
+    });
+    setCopyStatus('pasted-wall-list'); setTimeout(() => setCopyStatus(''), 2000);
+  };
+
+  const handleCopyWallRow = useCallback((row) => { setCopiedWallRow(row); setCopyStatus(\`copied-wall-\${row.id}\`); setTimeout(() => setCopyStatus(''), 2000); }, []);
+  const handlePasteWallRow = useCallback((targetId) => { if (!copiedWallRow) return; updateActiveMuros(prev => prev.map(m => { if (m.id !== targetId) return m; const clonedHuecos = (copiedWallRow.huecos || []).map(h => ({ ...h, id: \`H-\${Date.now()}-\${Math.random().toString(36).substr(2, 5)}\` })); const clonedCastillos = (copiedWallRow.castillos || []).map(c => ({ ...c, id: \`C-\${Date.now()}-\${Math.random().toString(36).substr(2, 5)}\` })); return { ...m, largo: copiedWallRow.largo || '', ancho: copiedWallRow.ancho || '', alto: copiedWallRow.alto || '', tipoAplanadoC1: copiedWallRow.tipoAplanadoC1 || '', tipoAplanadoC2: copiedWallRow.tipoAplanadoC2 || '', tipoRecubrimientoC1: copiedWallRow.tipoRecubrimientoC1 || '', tipoRecubrimientoC2: copiedWallRow.tipoRecubrimientoC2 || '', huecos: clonedHuecos, castillos: clonedCastillos }; })); setCopyStatus(\`pasted-wall-\${targetId}\`); setTimeout(() => setCopyStatus(''), 2000); }, [copiedWallRow, updateActiveMuros]);
+
+  const handleCopySelectedStructures = () => { const rowsToCopy = selectedStructureRows.length > 0 ? estructuras.filter(r => selectedStructureRows.includes(r.id)) : estructuras; if (rowsToCopy.length === 0) return; setCopiedStructureRowsList(rowsToCopy); setCopyStatus('copied-structure-list'); setTimeout(() => setCopyStatus(''), 2000); };
+  const handlePasteSelectedStructures = () => {
+    if (!copiedStructureRowsList || copiedStructureRowsList.length === 0) return;
+    updateActiveEstructuras(prev => {
+      let updatedRows = [...prev];
+      if (selectedStructureRows.length > 0) {
+        const sortedSelectedIds = updatedRows.filter(r => selectedStructureRows.includes(r.id)).map(r => r.id);
+        updatedRows = updatedRows.map(row => { if (selectedStructureRows.includes(row.id)) { const clipData = copiedStructureRowsList.length === 1 ? copiedStructureRowsList[0] : copiedStructureRowsList[sortedSelectedIds.indexOf(row.id) % copiedStructureRowsList.length]; const clonedAceros = (clipData.aceros || []).map(a => ({ ...a, id: \`AC-\${Date.now()}-\${Math.random().toString(36).substr(2, 5)}\` })); const clonedCasetones = (clipData.casetones || []).map(c => ({ ...c, id: \`CAS-\${Date.now()}-\${Math.random().toString(36).substr(2, 5)}\` })); return { ...row, eje: clipData.eje !== undefined ? clipData.eje : row.eje, clave: clipData.clave !== undefined ? clipData.clave : row.clave, tipo: clipData.tipo !== undefined ? clipData.tipo : row.tipo, i: clipData.i !== undefined ? clipData.i : row.i, largo: clipData.largo !== undefined ? clipData.largo : row.largo, ancho: clipData.ancho !== undefined ? clipData.ancho : row.ancho, alto: clipData.alto !== undefined ? clipData.alto : row.alto, piezas: clipData.piezas !== undefined ? clipData.piezas : row.piezas, aceros: clonedAceros, casetones: clonedCasetones }; } return row; });
+      } else { const newRows = copiedStructureRowsList.map((row, i) => { const clonedAceros = (row.aceros || []).map(a => ({ ...a, id: \`AC-\${Date.now()}-\${i}-\${Math.random().toString(36).substr(2, 5)}\` })); const clonedCasetones = (row.casetones || []).map(c => ({ ...c, id: \`CAS-\${Date.now()}-\${i}-\${Math.random().toString(36).substr(2, 5)}\` })); return { ...row, id: \`E-\${Date.now()}-\${i}-\${Math.random().toString(36).substr(2, 5)}\`, aceros: clonedAceros, casetones: clonedCasetones }; }); updatedRows = [...updatedRows, ...newRows]; }
+      return updatedRows;
+    });
+    setCopyStatus('pasted-structure-list'); setTimeout(() => setCopyStatus(''), 2000);
+  };
+
+  const getWallHuecosTotal = (huecos = []) => { const sum = huecos.reduce((acc, h) => acc + (parseFloat(h.largo)||0) * (parseFloat(h.alto)||0) * (parseFloat(h.piezas)||1), 0); return Math.round(sum * 100) / 100; };
+  const getWallCastillosTotal = (castillos = [], wallAlto) => { const sum = castillos.reduce((acc, c) => acc + (parseFloat(c.ancho)||0) * (parseFloat(wallAlto)||0) * (parseFloat(c.piezas)||1), 0); return Math.round(sum * 100) / 100; };
+  const calcWallArea = (largo, alto) => { const area = (parseFloat(largo) || 0) * (parseFloat(alto) || 0); return Math.round(area * 100) / 100; };
+  const calcWallNetArea = (row) => Math.max(0, calcWallArea(row.largo, row.alto) - getWallHuecosTotal(row.huecos) - getWallCastillosTotal(row.castillos, row.alto));
+
+  const getCasetonesTotalVol = (casetones = [], structPiezas = 1) => { const sum = casetones.reduce((acc, c) => acc + (parseFloat(c.largo)||0) * (parseFloat(c.ancho)||0) * (parseFloat(c.alto)||0) * (parseFloat(c.piezas)||1), 0); return Math.round(sum * structPiezas * 100) / 100; };
+
+  const wallSummary = useMemo(() => {
+    let totalMuros = 0; const aplanados = {}; const recubrimientos = {}; const murosPorAncho = {};
+    muros.forEach(w => {
+      const bruto = calcWallArea(w.largo, w.alto);
+      const dedH = getWallHuecosTotal(w.huecos);
+      const dedC = getWallCastillosTotal(w.castillos, w.alto);
+      const neto = Math.max(0, bruto - dedH - dedC);
+      const areaAcabados = Math.max(0, bruto - dedH); 
+      totalMuros += neto;
+      const anchoStr = parseFloat(w.ancho || 0).toFixed(2);
+      murosPorAncho[anchoStr] = (murosPorAncho[anchoStr] || 0) + neto;
+      const addAreaAcabado = (dict, tipo) => { if (tipo?.trim()) { const key = tipo.trim().toUpperCase(); dict[key] = (dict[key] || 0) + areaAcabados; } };
+      addAreaAcabado(aplanados, w.tipoAplanadoC1); addAreaAcabado(aplanados, w.tipoAplanadoC2); 
+      addAreaAcabado(recubrimientos, w.tipoRecubrimientoC1); addAreaAcabado(recubrimientos, w.tipoRecubrimientoC2);
+    });
+    return { totalMuros, murosPorAncho, aplanados, recubrimientos };
+  }, [muros]);

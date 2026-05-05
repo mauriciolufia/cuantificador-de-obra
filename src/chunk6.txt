@@ -1,0 +1,39 @@
+  return (
+    <div className="min-h-screen bg-[#fcfdfe] font-sans text-slate-900 p-4 md:p-6 flex flex-col">
+      {renderSteelSubmodal()}
+      {renderWallSubmodal()}
+      {renderCasetonSubmodal()}
+      {renderConceptSelectorModal()}
+      {renderGeneratorModal()}
+      {renderLevelReport()}
+      {renderGlobalSteelReport()}
+      <header className="max-w-7xl mx-auto mb-6 w-full shrink-0">
+        <div className="flex justify-between items-start">
+          {showCatalogo ? (
+             <button onClick={() => setShowCatalogo(false)} className="flex items-center gap-2 text-slate-400 hover:text-teal-600 font-bold text-[10px] uppercase tracking-[0.2em] transition-colors mb-4"><ChevronLeft size={16} /> Volver a Opciones de Obra</button> 
+          ) : activePartidaId ? ( 
+             <button onClick={() => { setActivePartidaId(null); setShowSettings(false); setShowWallGenerator(false); setShowStructureGenerator(false); setActiveWallSubmodal(null); setActiveSteelSubmodal(null); setActiveCasetonSubmodal(null); setActiveLevelReport(null); setShowCatalogo(false); }} className="flex items-center gap-2 text-slate-400 hover:text-blue-600 font-bold text-[10px] uppercase tracking-[0.2em] transition-colors mb-4"><ChevronLeft size={16} /> Volver a Opciones de Obra</button> 
+          ) : (
+             <button onClick={onBack} className="flex items-center gap-2 text-slate-400 hover:text-blue-600 font-bold text-[10px] uppercase tracking-[0.2em] transition-colors mb-4"><ChevronLeft size={16} /> Volver al Gestor de Obras</button>
+          )}
+        </div>
+        <div className="flex justify-between items-end flex-wrap gap-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-4"><div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-sm">X</div><div className="h-6 w-px bg-slate-200"></div><span className="text-blue-600 font-black uppercase tracking-[0.4em] text-[8px]">Asset Management</span></div>
+            <div><h1 className="text-4xl font-black tracking-tighter mb-2">{obraInfo.nombre || ''}</h1>{activePartidaId && !showCatalogo ? <p className="text-blue-600 font-black flex items-center gap-3 uppercase text-xs tracking-widest"><Layers size={14} /> PARTIDA: <span className="text-slate-600">{activePartida.nombre}</span></p> : showCatalogo ? <p className="text-teal-600 font-black flex items-center gap-3 uppercase text-xs tracking-widest"><ListPlus size={14} /> CATÁLOGO MAESTRO</p> : <p className="text-slate-400 font-black flex items-center gap-3 uppercase text-[10px] tracking-widest"><LayoutDashboard size={14} /> MENÚ DE PARTIDAS</p>}</div>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            {!showCatalogo && (
+              <button onClick={() => { setShowSettings(!showSettings); setShowWallGenerator(false); setShowStructureGenerator(false); }} className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg flex items-center gap-2 ${showSettings && !showWallGenerator && !showStructureGenerator ? 'bg-blue-600 text-white' : 'bg-white border text-slate-700 hover:bg-slate-50'}`}><Settings size={16} /> Ajustes</button>
+            )}
+            {activePartidaId && !showCatalogo && (
+              <>
+                <button onClick={() => { setShowStructureGenerator(!showStructureGenerator); setShowWallGenerator(false); setShowSettings(false); }} className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all flex items-center gap-2 ${showStructureGenerator ? 'bg-amber-600 text-white' : 'bg-white border text-slate-700 hover:bg-amber-50'}`}><Box size={16} /> Estructura</button>
+                <button onClick={() => { setShowWallGenerator(!showWallGenerator); setShowStructureGenerator(false); setShowSettings(false); }} className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all flex items-center gap-2 ${showWallGenerator ? 'bg-indigo-700 text-white' : 'bg-white border text-slate-700 hover:bg-indigo-50'}`}><Building2 size={16} /> Muros</button>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+      <main className="max-w-7xl mx-auto w-full flex-1 relative">
+        {showCatalogo ? renderCatalogo() : showStructureGenerator ? (

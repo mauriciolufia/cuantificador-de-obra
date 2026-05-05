@@ -1,0 +1,132 @@
+                   const levelNameExport = niveles.find(n=>n.id===activeLevelId)?.nombre||'TODOS LOS NIVELES';
+                   const renderExVal = (v) => {
+                       const num = parseFloat(v);
+                       if (isNaN(num) || num === 0) return '-';
+                       return num.toFixed(2);
+                   };
+
+                   let html = `<table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; text-align: center;">
+                      <colgroup>
+                         <col width="30" />
+                         <col width="50" />
+                         <col width="80" />
+                         <col width="100" />
+                         <col width="150" />
+                         <col width="50" />
+                         <col width="80" />
+                         <col width="80" />
+                         <col width="80" />
+                         <col width="60" />
+                         <col width="100" />
+                         <col width="100" />
+                         <col width="120" />
+                         <col width="100" />
+                      </colgroup>
+                      <thead>
+                      <tr style="height: 15pt;">
+                         <td colspan="14" style="border: none; background-color: #ffffff;"></td>
+                      </tr>
+                      <tr style="height: 20pt;">
+                         <td style="border: none; background-color: #ffffff;"></td>
+                         <th colspan="13" style="background-color: #9f490e; color: #ffffff; font-size: 12pt; font-weight: bold; text-align: center; vertical-align: middle; border: 1px solid #9f490e; text-transform: uppercase;">
+                            GENERADOR DE ESTRUCTURAS Y ACERO - NIVEL: ${levelNameExport}
+                         </th>
+                      </tr>
+                      <tr style="height: 15pt;">
+                         <td colspan="14" style="border: none; background-color: #ffffff;"></td>
+                      </tr>
+                      <tr style="background-color: #f2f6fb; color: #2f5496; font-size: 8pt; font-weight: bold; text-align: center; height: 15pt;">
+                         <td style="border: none; background-color: #ffffff;"></td>
+                         <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">NO.</th>
+                         <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">EJE</th>
+                         <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">CLAVE</th>
+                         <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">TIPO ELEMENTO</th>
+                         <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">I</th>
+                         <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">LARGO (M)</th>
+                         <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">ANCHO (M)</th>
+                         <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">ALTO (M)</th>
+                         <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">PZAS</th>
+                         <th colspan="4" style="border: 1px solid #b4c6e7; background-color: #deebf7; color: #2f5496; vertical-align: middle;">VOLÚMENES / ÁREAS TOTALES</th>
+                      </tr>
+                      <tr style="font-size: 8pt; font-weight: bold; height: 15pt; text-align: center;">
+                         <td style="border: none; background-color: #ffffff;"></td>
+                         <th style="background-color: #deebf7; color: #2f5496; border: 1px solid #b4c6e7; vertical-align: middle;">CONCRETO (M3)</th>
+                         <th style="background-color: #fdf3e8; color: #c65911; border: 1px solid #b4c6e7; vertical-align: middle;">CIMBRA (M2)</th>
+                         <th style="background-color: #fdf3e8; color: #c65911; border: 1px solid #b4c6e7; vertical-align: middle;">CIM. FRONT(ML)</th>
+                         <th style="background-color: #f2f6fb; color: #44546a; border: 1px solid #b4c6e7; vertical-align: middle;">ACERO (KG)</th>
+                      </tr>
+                   </thead><tbody>`;
+
+                   estructuras.forEach((e, i) => {
+                      const concreto = calcConcreto(e);
+                      const cimbra = calcCimbra(e);
+                      const cimbraFrontera = calcCimbraFrontera(e);
+                      const aceroKg = calcAceroTotalKg(e.aceros, e.piezas);
+                      
+                      html += `<tr style="text-align: center; background-color: #ffffff; height: 15pt;">
+                         <td style="border: none; background-color: #ffffff;"></td>
+                         <td style="border: 1px solid #b4c6e7; color: #a6a6a6; font-size: 8pt; font-weight: bold; vertical-align: middle; mso-number-format:'0';">${i+1}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; text-transform: uppercase; font-size: 8pt; vertical-align: middle;">${e.eje || ''}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; text-transform: uppercase; font-size: 8pt; vertical-align: middle;">${e.clave || ''}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #595959; font-weight: bold; text-transform: uppercase; font-size: 8pt; vertical-align: middle;">${e.tipo || ''}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; font-size: 8pt; vertical-align: middle; text-transform: uppercase;">${e.i ? 'SI' : 'NO'}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(e.largo)}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(e.ancho)}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(e.alto)}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #000000; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(e.piezas || 1)}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${concreto > 0 ? concreto.toFixed(2) : '-'}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #e36c09; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${cimbra > 0 ? cimbra.toFixed(2) : '-'}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #e36c09; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${cimbraFrontera > 0 ? cimbraFrontera.toFixed(2) : '-'}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #44546a; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${aceroKg > 0 ? aceroKg.toFixed(2) : '-'}</td>
+                      </tr>`;
+                   });
+                   html += `</tbody></table><br/><br/>`;
+                   
+                   html += `<table style="border-collapse: collapse; font-family: Arial, sans-serif; text-align: center;">
+                      <thead>
+                         <tr style="height: 15pt;">
+                            <td style="width: 30px; border: none;"></td>
+                            <th colspan="5" style="background-color: #0d705a; color: white; font-size: 12pt; padding: 6px; border: 1px solid #0d705a; vertical-align: middle;">
+                               VOLÚMENES GENERALES DE CIMENTACIÓN
+                            </th>
+                         </tr>
+                         <tr style="background-color: #caffeb; color: #0d705a; font-size: 9pt; height: 15pt;">
+                            <td style="border: none; background-color: #ffffff;"></td>
+                            <th style="border: 1px solid #7bc5b2; width: 150px; vertical-align: middle;">CONCRETO (M3)</th>
+                            <th style="border: 1px solid #7bc5b2; width: 120px; vertical-align: middle;">PLANTILLA (M2)</th>
+                            <th style="border: 1px solid #7bc5b2; width: 120px; vertical-align: middle;">EXCAVACIÓN (M3)</th>
+                            <th style="border: 1px solid #7bc5b2; width: 120px; vertical-align: middle;">AFINE (M2)</th>
+                            <th style="border: 1px solid #7bc5b2; width: 120px; vertical-align: middle;">RELLENO (M3)</th>
+                         </tr>
+                      </thead>
+                      <tbody>
+                         <tr style="text-align: center; background-color: #ffffff; height: 15pt;">
+                            <td style="border: none;"></td>
+                            <td style="border: 1px solid #7bc5b2; font-weight: bold; color: #0d705a; font-size: 10pt; mso-number-format:'0\\.00'; vertical-align: middle;">${estructuraSummary.totalConcretoCimentacion.toFixed(2)}</td>
+                            <td style="border: 1px solid #7bc5b2; font-weight: bold; color: #0d705a; font-size: 10pt; mso-number-format:'0\\.00'; vertical-align: middle;">${estructuraSummary.totalPlantilla.toFixed(2)}</td>
+                            <td style="border: 1px solid #7bc5b2; font-weight: bold; color: #0d705a; font-size: 10pt; mso-number-format:'0\\.00'; vertical-align: middle;">${estructuraSummary.totalExcavacion.toFixed(2)}</td>
+                            <td style="border: 1px solid #7bc5b2; font-weight: bold; color: #0d705a; font-size: 10pt; mso-number-format:'0\\.00'; vertical-align: middle;">${estructuraSummary.totalAfine.toFixed(2)}</td>
+                            <td style="border: 1px solid #7bc5b2; font-weight: bold; color: #0d705a; font-size: 10pt; mso-number-format:'0\\.00'; vertical-align: middle;">${estructuraSummary.totalRelleno.toFixed(2)}</td>
+                         </tr>
+                      </tbody>
+                   </table><br/>`;
+
+                   html += `<table style="border-collapse: collapse; font-family: Arial, sans-serif; text-align: center;">
+                      <thead>
+                         <tr style="height: 15pt;">
+                            <td style="width: 30px; border: none;"></td>
+                            <th colspan="6" style="background-color: #e36c09; color: white; font-size: 12pt; padding: 6px; border: 1px solid #e36c09; vertical-align: middle;">
+                               DESGLOSE POR GRUPOS PARA GENERADORES
+                            </th>
+                         </tr>
+                         <tr style="background-color: #fdf3e8; color: #c65911; font-size: 9pt; height: 15pt;">
+                            <td style="border: none; background-color: #ffffff;"></td>
+                            <th style="border: 1px solid #f8cbad; width: 250px; vertical-align: middle;">GRUPO / TIPO</th>
+                            <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">CONCRETO (M3)</th>
+                            <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">CASETONES (M3)</th>
+                            <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">CIMBRA (M2)</th>
+                            <th style="border: 1px solid #f8cbad; width: 140px; vertical-align: middle;">CIM. FRONT (ML)</th>
+                            <th style="border: 1px solid #f8cbad; width: 140px; vertical-align: middle;">ACERO TOTAL (KG)</th>
+                         </tr>
+                      </thead>
+                      <tbody>`;

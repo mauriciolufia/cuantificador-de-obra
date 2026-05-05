@@ -1,0 +1,271 @@
+  const calcConcreto = (r) => { 
+    const tipo = r.tipo?.toLowerCase() || ''; 
+    if (tipo === 'nervadura') return 0; 
+    const volBruto = getEffectiveLargo(r) * (parseFloat(r.ancho) || 0) * (parseFloat(r.alto) || 0) * (parseFloat(r.piezas) || 1); 
+    if (tipo === 'losa nervada') {
+      const volCasetones = getCasetonesTotalVol(r.casetones || [], r.piezas);
+      return Math.max(0, Math.round((volBruto - volCasetones) * 100) / 100);
+    }
+    return Math.round(volBruto * 100) / 100; 
+  };
+  const calcCimbra = (r) => { const l = getEffectiveLargo(r), a = parseFloat(r.ancho) || 0, h = parseFloat(r.alto) || 0, p = parseFloat(r.piezas) || 1, t = (r.tipo || '').toLowerCase(); let area = 0; if (t === 'columna' || t === 'dado') area = (l + a) * 2 * h * p; else if (t === 'trabe' || t === 'contratrabe') area = ((l * a) + (l * h * 2)) * p; else if (t === 'losa' || t === 'losa nervada') area = l * a * p; else if (t === 'muro') area = l * h * 2 * p; else if (t === 'zapata aislada' || t === 'zapata corrida') area = (l + a) * 2 * p; return Math.round(area * 100) / 100; };
+  const calcCimbraFrontera = (r) => { const l = getEffectiveLargo(r), a = parseFloat(r.ancho) || 0, p = parseFloat(r.piezas) || 1, t = (r.tipo || '').toLowerCase(); let front = 0; if (t === 'losa' || t === 'losa nervada') front = (l + a) * 2 * p; return Math.round(front * 100) / 100; };
+  const calcAceroItem = (acero) => { const p = parseFloat(acero.piezas) || 0, l = parseFloat(acero.longitud) || 0, g = parseFloat(acero.ganchos) || 0, t = parseFloat(acero.traslapes) || 0; const mlPorPieza = l + (g * 0.5) + t; const mlTotal = mlPorPieza * p; const pesoKgM = PESOS_VARILLA[acero.numVarilla] || 0; return { mlPorPieza, ml: mlTotal, kg: mlTotal * pesoKgM }; };
+  const calcAceroTotalKg = (aceros = [], piezasElem = 1) => { const pz = parseFloat(piezasElem) || 1; return aceros.reduce((acc, a) => acc + (Math.round(calcAceroItem(a).kg * pz * 100) / 100), 0); };
+
+  const estructuraSummary = useMemo(() => {
+    let totalConcreto = 0, totalConcretoCimentacion = 0, totalConcretoEstructura = 0, totalConcretoColumnas = 0, totalConcretoMuros = 0, totalCimbra = 0, totalCimbraCimentacion = 0, totalCimbraFronteraCimentacion = 0, totalAceroGeneral = 0, totalAceroCimentacion = 0, totalAceroEstructuraGlobal = 0, totalPlantilla = 0, totalExcavacion = 0, totalAfine = 0, totalRelleno = 0, totalCasetonesGeneral = 0;
+    let totalCimbraFrontera = 0;
+    const breakdown = {}, aceroCimentacionDetalle = {}, aceroEstructuraDetalle = {}, aceroEstructuraGlobalDetalle = {};
+    estructuras.forEach(e => {
+      const c = calcConcreto(e), cim = calcCimbra(e), cimFrontera = calcCimbraFrontera(e), aceroKg = calcAceroTotalKg(e.aceros, e.piezas);
+      const tipo = (e.tipo || 'Sin Seleccionar').toLowerCase();
+      const isCimentacion = ['zapata aislada', 'zapata corrida', 'contratrabe', 'dado'].includes(tipo);
+      const isEstructuraGlobal = ['losa', 'losa nervada', 'trabe', 'nervadura', 'columna'].includes(tipo);
+      const isEstructuraGpo = ['losa', 'losa nervada', 'trabe', 'nervadura'].includes(tipo);
+      
+      if (isCimentacion) { 
+         totalConcretoCimentacion += c; totalAceroCimentacion += aceroKg; totalCimbraCimentacion += cim; totalCimbraFronteraCimentacion += cimFrontera; 
+      } else { 
+         totalConcreto += c; totalAceroGeneral += aceroKg; 
+         if (isEstructuraGpo) totalConcretoEstructura += c;
+         else if (tipo === 'columna') totalConcretoColumnas += c;
+         else if (tipo === 'muro') totalConcretoMuros += c;
+      }
+      
+      totalCimbra += cim; totalCimbraFrontera += cimFrontera;
+      
+      const isConcEstGroup = ['losa', 'losa nervada', 'trabe'].includes(tipo);
+      
+      let groupOtros = tipo;
+      if (tipo === 'columna') groupOtros = 'Columnas';
+      else if (tipo === 'muro') groupOtros = 'Muros';
+      else if (tipo === 'losa') groupOtros = 'Losas';
+      else if (tipo === 'losa nervada') groupOtros = 'Losas Nervadas';
+      else if (tipo === 'trabe') groupOtros = 'Trabes';
+      else if (tipo === 'nervadura') groupOtros = 'Nervaduras';
+      else if (tipo === 'zapata aislada') groupOtros = \`Zapatas Aisladas (Esp: \${parseFloat(e.alto || 0).toFixed(2)}m)\`;
+      else if (tipo === 'zapata corrida') groupOtros = \`Zapatas Corridas (Esp: \${parseFloat(e.alto || 0).toFixed(2)}m)\`;
+      else if (tipo === 'contratrabe') groupOtros = 'Contratrabes';
+      else if (tipo === 'dado') groupOtros = 'Dados';
+
+      const ensureBucket = (key, customTipo) => {
+          if (!breakdown[key]) {
+              breakdown[key] = { tipoOriginal: customTipo || tipo, isCimentacion: isCimentacion, concreto: 0, cimbra: 0, cimbraFrontera: 0, aceroKg: 0, aceroDetalle: {}, plantilla: 0, excavacion: 0, afine: 0, relleno: 0, casetones: 0 };
+          }
+      };
+
+      if (isConcEstGroup) {
+          ensureBucket('Concreto en Estructuras', 'concreto_estructura');
+          breakdown['Concreto en Estructuras'].concreto += c;
+          ensureBucket(groupOtros, tipo);
+      } else {
+          ensureBucket(groupOtros, tipo);
+          breakdown[groupOtros].concreto += c;
+      }
+
+      if (tipo === 'losa nervada') {
+         const volCasetones = getCasetonesTotalVol(e.casetones || [], e.piezas);
+         breakdown[groupOtros].casetones += volCasetones;
+         totalCasetonesGeneral += volCasetones;
+      }
+
+      breakdown[groupOtros].cimbra += cim;
+      breakdown[groupOtros].cimbraFrontera += cimFrontera;
+
+      if (['zapata aislada', 'zapata corrida', 'contratrabe'].includes(tipo)) {
+         const l = getEffectiveLargo(e), a = parseFloat(e.ancho) || 0, p = parseFloat(e.piezas) || 1;
+         const plantillaItem = (l + 0.5) * (a + 0.5) * p, excavacionItem = plantillaItem * 1.5, afineItem = plantillaItem, rellenoItem = Math.max(0, excavacionItem - c);
+         breakdown[groupOtros].plantilla += plantillaItem; breakdown[groupOtros].excavacion += excavacionItem;
+         breakdown[groupOtros].afine += afineItem; breakdown[groupOtros].relleno += rellenoItem;
+         totalPlantilla += plantillaItem; totalExcavacion += excavacionItem; totalAfine += afineItem; totalRelleno += rellenoItem;
+      }
+
+      (e.aceros || []).forEach(a => {
+        const numVar = a.numVarilla || '-';
+        const kgRounded = Math.round(calcAceroItem(a).kg * (parseFloat(e.piezas) || 1) * 100) / 100;
+        if (isCimentacion) { aceroCimentacionDetalle[numVar] = (aceroCimentacionDetalle[numVar] || 0) + kgRounded; } 
+        else if (isEstructuraGlobal) { totalAceroEstructuraGlobal += kgRounded; aceroEstructuraGlobalDetalle[numVar] = (aceroEstructuraGlobalDetalle[numVar] || 0) + kgRounded; } 
+        else { aceroEstructuraDetalle[numVar] = (aceroEstructuraDetalle[numVar] || 0) + kgRounded; }
+        
+        breakdown[groupOtros].aceroKg += kgRounded;
+        if (!breakdown[groupOtros].aceroDetalle[numVar]) breakdown[groupOtros].aceroDetalle[numVar] = 0;
+        breakdown[groupOtros].aceroDetalle[numVar] += kgRounded;
+      });
+    });
+    return { totalConcreto, totalConcretoCimentacion, totalConcretoEstructura, totalConcretoColumnas, totalConcretoMuros, totalCimbra, totalCimbraCimentacion, totalCimbraFronteraCimentacion, totalAceroGeneral, totalAceroCimentacion, totalAceroEstructuraGlobal, breakdown, aceroCimentacionDetalle, aceroEstructuraDetalle, aceroEstructuraGlobalDetalle, totalCimbraFrontera, totalPlantilla, totalExcavacion, totalAfine, totalRelleno, totalCasetonesGeneral };
+  }, [estructuras]);
+
+  const updateWallSubItem = useCallback((wallId, type, itemId, field, value) => { updateActiveMuros(prev => prev.map(m => m.id === wallId ? {...m, [type]: (m[type] || []).map(item => item.id === itemId ? {...item, [field]: value} : item)} : m)); }, [updateActiveMuros]);
+  const addWallSubItem = useCallback((wallId, type) => { updateActiveMuros(prev => prev.map(m => m.id === wallId ? {...m, [type]: [...(m[type] || []), type === 'huecos' ? { id: \`H-\${Date.now()}\`, tipo: '', largo: '', alto: '', piezas: '1' } : { id: \`C-\${Date.now()}\`, ancho: '', piezas: '1' }]} : m)); }, [updateActiveMuros]);
+  const removeWallSubItem = useCallback((wallId, type, itemId) => { updateActiveMuros(prev => prev.map(m => m.id === wallId ? {...m, [type]: (m[type] || []).filter(item => item.id !== itemId)} : m)); }, [updateActiveMuros]);
+
+  const updateCasetonItem = useCallback((structId, itemId, field, value) => { updateActiveEstructuras(prev => prev.map(s => s.id === structId ? {...s, casetones: (s.casetones || []).map(c => c.id === itemId ? {...c, [field]: value} : c)} : s)); }, [updateActiveEstructuras]);
+  const addCasetonItem = useCallback((structId) => { updateActiveEstructuras(prev => prev.map(s => s.id === structId ? {...s, casetones: [...(s.casetones || []), { id: \`CAS-\${Date.now()}\`, clave: '', largo: '', ancho: '', alto: '', piezas: '1' }]} : s)); }, [updateActiveEstructuras]);
+  const removeCasetonItem = useCallback((structId, itemId) => { updateActiveEstructuras(prev => prev.map(s => s.id === structId ? {...s, casetones: (s.casetones || []).filter(c => c.id !== itemId)} : s)); }, [updateActiveEstructuras]);
+
+  const updateCatalogoField = useCallback((id, field, value) => { setCatalogoConceptos(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c)); }, [setCatalogoConceptos]);
+  const updateCatalogoId = useCallback((oldId, newId) => { if (oldId === newId || !newId.trim()) return; setCatalogoConceptos(prev => prev.some(c => c.id === newId) ? prev : prev.map(c => c.id === oldId ? { ...c, id: newId } : c)); }, [setCatalogoConceptos]);
+
+  const handleCopyWalls = (type, value) => {
+    let rowsToCopy = []; const normalize = (val) => (val || '').trim().toUpperCase();
+    muros.forEach(m => {
+      const l = m.largo, h = m.alto, base = { eje: m.eje || '', claveLoc: m.clave || '' }; let multiplier = 0, suffix = '';
+      if (type === 'TOTAL_NETO') { 
+         const anchoStr = parseFloat(m.ancho || 0).toFixed(2);
+         if (value && anchoStr !== value) return;
+         multiplier = 1; suffix = '(Área Bruta)'; 
+      }
+      else if (type === 'APLANADO') { multiplier = (normalize(m.tipoAplanadoC1) === value ? 1 : 0) + (normalize(m.tipoAplanadoC2) === value ? 1 : 0); suffix = \`(Área Bruta - \${multiplier} Caras)\`; }
+      else if (type === 'RECUBRIMIENTO') { multiplier = (normalize(m.tipoRecubrimientoC1) === value ? 1 : 0) + (normalize(m.tipoRecubrimientoC2) === value ? 1 : 0); suffix = \`(Área Bruta - \${multiplier} Caras)\`; }
+      if (multiplier === 0) return;
+      
+      rowsToCopy.push({ ...base, claveLoc: (base.claveLoc ? base.claveLoc + ' ' : '') + suffix, largo: l, ancho: '', alto: h, piezas: multiplier });
+      (m.huecos || []).forEach(dh => rowsToCopy.push({ ...base, claveLoc: (base.claveLoc ? base.claveLoc + ' ' : '') + \`(- \${dh.tipo || 'Hueco'})\`, largo: dh.largo, ancho: '', alto: dh.alto, piezas: -(parseFloat(dh.piezas) || 1) * multiplier }));
+      if (type === 'TOTAL_NETO') {
+         (m.castillos || []).forEach(dc => rowsToCopy.push({ ...base, claveLoc: (base.claveLoc ? base.claveLoc + ' ' : '') + '(- Castillo)', largo: dc.ancho, ancho: '', alto: m.alto, piezas: -(parseFloat(dc.piezas) || 1) * multiplier }));
+      }
+    });
+    setClipboardRows(rowsToCopy); copyRowsToExcelClipboard(rowsToCopy); setCopyStatus(\`copied-wall-\${type}-\${value || 'all'}\`); setTimeout(() => setCopyStatus(''), 2000);
+  };
+
+  const handleCopyStructure = (tipoKey, material) => {
+    let filtered = [];
+    if (tipoKey === 'GLOBAL_CIMENTACION') filtered = estructuras.filter(e => ['zapata aislada', 'zapata corrida', 'contratrabe', 'dado'].includes((e.tipo || 'Sin Seleccionar').toLowerCase()));
+    else if (tipoKey === 'GLOBAL_ESTRUCTURA_ACERO') filtered = estructuras.filter(e => ['losa', 'losa nervada', 'trabe', 'nervadura', 'columna'].includes((e.tipo || 'Sin Seleccionar').toLowerCase()));
+    else if (tipoKey === 'GLOBAL_ESTRUCTURA') filtered = estructuras.filter(e => !['zapata aislada', 'zapata corrida', 'contratrabe', 'dado', 'muro'].includes((e.tipo || 'Sin Seleccionar').toLowerCase()));
+    else if (tipoKey === 'Estructura (Losas y Trabes)') filtered = estructuras.filter(e => ['losa', 'losa nervada', 'trabe', 'nervadura'].includes((e.tipo || '').toLowerCase()));
+    else if (tipoKey === 'Columnas') filtered = estructuras.filter(e => (e.tipo || '').toLowerCase() === 'columna');
+    else if (tipoKey === 'Muros') filtered = estructuras.filter(e => (e.tipo || '').toLowerCase() === 'muro');
+    else if (tipoKey === 'Cimentación') filtered = estructuras.filter(e => ['zapata aislada', 'zapata corrida', 'contratrabe', 'dado'].includes((e.tipo || '').toLowerCase()));
+    else if (tipoKey === 'Losas') filtered = estructuras.filter(e => (e.tipo || '').toLowerCase() === 'losa');
+    else if (tipoKey === 'Losas Nervadas') filtered = structures.filter(e => (e.tipo || '').toLowerCase() === 'losa nervada');
+    else if (tipoKey === 'Trabes') filtered = estructuras.filter(e => (e.tipo || '').toLowerCase() === 'trabe');
+    else if (tipoKey === 'Nervaduras') filtered = estructuras.filter(e => (e.tipo || '').toLowerCase() === 'nervadura');
+    else filtered = estructuras.filter(e => { const t = (e.tipo || 'Sin Seleccionar').toLowerCase(); const tk = tipoKey.toLowerCase(); return ['zapata aislada', 'zapata corrida'].includes(t) ? \`\${t} (Esp: \${(parseFloat(e.alto) || 0).toFixed(2)}m)\` === tk : t === tk; });
+    
+    let rowsToCopy = [];
+    if (material === 'concreto') { 
+      rowsToCopy = filtered.flatMap(e => {
+        const base = { eje: e.eje || '', claveLoc: e.clave || '' };
+        const pMain = parseFloat(e.piezas) || 1;
+        let rows = [{ ...base, largo: getEffectiveLargo(e), ancho: e.ancho, alto: e.alto, piezas: e.piezas }];
+        if (e.tipo?.toLowerCase() === 'losa nervada' && e.casetones && e.casetones.length > 0) {
+           const casetonesRows = e.casetones.map(c => ({
+              ...base, claveLoc: (base.claveLoc ? base.claveLoc + ' ' : '') + \`(- Casetón \${c.clave || ''})\`.trim(), largo: c.largo, ancho: c.ancho, alto: c.alto, piezas: -(parseFloat(c.piezas) || 1) * pMain
+           }));
+           rows = rows.concat(casetonesRows);
+        }
+        return rows;
+      });
+    } 
+    else if (material === 'cimbra') {
+      rowsToCopy = filtered.flatMap(e => {
+        const l = getEffectiveLargo(e), a = e.ancho, h = e.alto, p = parseFloat(e.piezas) || 1, t = (e.tipo || '').toLowerCase(), base = { eje: e.eje || '', claveLoc: e.clave || '' };
+        if (t === 'muro') return [{ ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Caras)' : 'Caras', largo: l, ancho: '', alto: h, piezas: p * 2 }];
+        if (t === 'losa' || t === 'losa nervada') return [{ ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Fondo)' : 'Fondo', largo: l, ancho: a, alto: '', piezas: p }];
+        if (t === 'columna' || t === 'dado') return [ { ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Lados X)' : 'Lados X', largo: l, ancho: '', alto: h, piezas: p * 2 }, { ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Lados Y)' : 'Lados Y', largo: a, ancho: '', alto: h, piezas: p * 2 } ];
+        if (t === 'zapata aislada' || t === 'zapata corrida') return [ { ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Lados X)' : 'Lados X', largo: l, ancho: '', alto: '', piezas: p * 2 }, { ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Lados Y)' : 'Lados Y', largo: a, ancho: '', alto: '', piezas: p * 2 } ];
+        if (t === 'trabe' || t === 'contratrabe') return [ { ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Fondo)' : 'Fondo', largo: l, ancho: a, alto: '', piezas: p }, { ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Laterales)' : 'Laterales', largo: l, ancho: '', alto: h, piezas: p * 2 } ];
+        return [];
+      });
+    } else if (material === 'cimbraFrontera') {
+      rowsToCopy = filtered.flatMap(e => { const l = getEffectiveLargo(e), a = e.ancho, p = parseFloat(e.piezas) || 1, t = (e.tipo || '').toLowerCase(), base = { eje: e.eje || '', claveLoc: e.clave || '' }; if (t === 'losa' || t === 'losa nervada') return [ { ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Frontera X)' : 'Frontera X', largo: l, ancho: '', alto: '', piezas: p * 2 }, { ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Frontera Y)' : 'Frontera Y', largo: a, ancho: '', alto: '', piezas: p * 2 } ]; return []; });
+    } else if (['excavacion', 'plantilla', 'afine', 'relleno'].includes(material)) {
+      rowsToCopy = filtered.flatMap(e => {
+        const l = getEffectiveLargo(e), a = parseFloat(e.ancho) || 0, p = parseFloat(e.piezas) || 1, base = { eje: e.eje || '', claveLoc: e.clave || '' };
+        const plantillaArea = (l + 0.5) * (a + 0.5);
+        const excavacionVol = plantillaArea * 1.5;
+        const c = calcConcreto(e) / p;
+        const rellenoVol = Math.max(0, excavacionVol - c);
+        if (material === 'plantilla') return [{ ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Plantilla)' : 'Plantilla', largo: l + 0.5, ancho: a + 0.5, alto: '', piezas: p }];
+        if (material === 'afine') return [{ ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Afine)' : 'Afine', largo: l + 0.5, ancho: a + 0.5, alto: '', piezas: p }];
+        if (material === 'excavacion') return [{ ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Excavación)' : 'Excavación', largo: l + 0.5, ancho: a + 0.5, alto: 1.5, piezas: p }];
+        if (material === 'relleno') return [{ ...base, claveLoc: base.claveLoc ? base.claveLoc + ' (Relleno)' : 'Relleno', largo: rellenoVol.toFixed(2), ancho: '', alto: '', piezas: p }];
+        return [];
+      });
+    } else if (material === 'caseton') {
+      rowsToCopy = filtered.flatMap(e => {
+        const p = parseFloat(e.piezas) || 1, base = { eje: e.eje || '', claveLoc: e.clave || '' };
+        return (e.casetones || []).map(c => ({ ...base, claveLoc: (base.claveLoc ? base.claveLoc + ' ' : '') + \`(Casetón \${c.clave || ''})\`.trim(), largo: c.largo, ancho: c.ancho, alto: c.alto, piezas: (parseFloat(c.piezas) || 1) * p }));
+      });
+    } else if (material.startsWith('acero-')) {
+      const numVar = material.split('-')[1]; 
+      rowsToCopy = filtered.flatMap(e => (e.aceros || []).filter(a => numVar === 'total' || a.numVarilla === numVar).map(a => ({ 
+          eje: e.eje || '', 
+          claveLoc: ((e.clave ? e.clave + ' ' : '') + \`\${a.tipo || 'Acero'} #\${a.numVarilla || '-'}\`).trim(), 
+          largo: calcAceroItem(a).mlPorPieza, 
+          ancho: PESOS_VARILLA[a.numVarilla || '-'] || 0, 
+          alto: '', 
+          piezas: (parseFloat(a.piezas) || 1) * (parseFloat(e.piezas) || 1) 
+      })));
+    }
+    setClipboardRows(rowsToCopy); copyRowsToExcelClipboard(rowsToCopy); setCopyStatus(\`copied-\${tipoKey}-\${material}\`); setTimeout(() => setCopyStatus(''), 2000);
+  };
+
+  const updateEstructuraField = useCallback((structId, field, value) => {
+    updateActiveEstructuras(prev => prev.map(s => {
+      if (s.id !== structId) return s; const newS = { ...s, [field]: value };
+      if (['largo', 'ancho', 'alto', 'tipo'].includes(field)) {
+          newS.aceros = (newS.aceros || []).map(a => {
+             const updatedA = { ...a }, tAcero = (updatedA.tipo || '').toLowerCase(), tEst = (newS.tipo || '').toLowerCase(), l = parseFloat(newS.largo) || 0, an = parseFloat(newS.ancho) || 0, al = parseFloat(newS.alto) || 0;
+             if (tAcero === 'longitudinal') { if (['columna', 'dado'].includes(tEst)) updatedA.longitud = al > 0 ? al.toString() : ''; else if (['trabe', 'nervadura', 'contratrabe'].includes(tEst)) updatedA.longitud = l > 0 ? l.toString() : ''; else if (['zapata aislada', 'zapata corrida', 'losa', 'losa nervada'].includes(tEst)) { updatedA.anchoCalc = an > 0 ? an.toString() : ''; updatedA.longitud = l > 0 ? l.toString() : ''; } const longCalc = parseFloat(updatedA.longitud) || 0; updatedA.traslapes = longCalc >= 12 ? Math.floor(longCalc / 12).toString() : '0'; }
+             if (tAcero === 'transversal' && ['zapata aislada', 'zapata corrida', 'losa', 'losa nervada'].includes(tEst)) { updatedA.anchoCalc = l > 0 ? l.toString() : ''; updatedA.longitud = an > 0 ? an.toString() : ''; }
+             if (tAcero === 'estribos') { updatedA.ganchos = '0'; updatedA.traslapes = '0'; let perimetro = 0; if (['columna', 'dado'].includes(tEst)) { perimetro = (l + an) * 2; if (!updatedA.anchoCalc || parseFloat(updatedA.anchoCalc) === parseFloat(s.alto)) updatedA.anchoCalc = al > 0 ? al.toString() : ''; } else if (['trabe', 'nervadura', 'contratrabe'].includes(tEst)) { perimetro = (an + al) * 2; if (!updatedA.anchoCalc || parseFloat(updatedA.anchoCalc) === parseFloat(s.largo)) updatedA.anchoCalc = l > 0 ? l.toString() : ''; } if (perimetro > 0) updatedA.longitud = (perimetro - 0.06 + 0.12).toFixed(2); }
+             if (tEst === 'muro') { if (tAcero === 'vertical') { updatedA.anchoCalc = l > 0 ? l.toString() : ''; updatedA.longitud = al > 0 ? al.toString() : ''; } else if (tAcero === 'horizontal') { updatedA.anchoCalc = al > 0 ? al.toString() : ''; updatedA.longitud = l > 0 ? l.toString() : ''; } }
+             if (tAcero === 'bastones' || tAcero === 'refuerzo adicional') updatedA.longitud = updatedA.anchoCalc || '';
+             const isPorPiezas = tAcero === 'bastones' || tAcero === 'refuerzo adicional' || (tAcero === 'longitudinal' && ['columna', 'dado', 'trabe', 'nervadura', 'contratrabe'].includes(tEst));
+             if (!isPorPiezas) { const anchoCalc = parseFloat(updatedA.anchoCalc), sep = parseFloat(updatedA.separacion); if (!isNaN(anchoCalc) && anchoCalc > 0 && !isNaN(sep) && sep > 0) updatedA.piezas = Math.floor(anchoCalc / (sep / 100)) + 2; }
+             return updatedA;
+          });
+      }
+      return newS;
+    }));
+  }, [updateActiveEstructuras]);
+
+  const updateSteelItem = useCallback((structId, itemId, field, value) => {
+    updateActiveEstructuras(prev => prev.map(s => {
+      if (s.id !== structId) return s;
+      return {...s, aceros: (s.aceros || []).map(a => {
+        if (a.id !== itemId) return a; const updatedA = { ...a, [field]: value }, tipoAcero = (updatedA.tipo || '').toLowerCase(), tipoEstructura = (s.tipo || '').toLowerCase();
+        const isPorPiezas = tipoAcero === 'bastones' || tipoAcero === 'refuerzo adicional' || (tipoAcero === 'longitudinal' && ['columna', 'dado', 'trabe', 'nervadura', 'contratrabe'].includes(tipoEstructura));
+        if (field === 'tipo') {
+          const l = parseFloat(s.largo) || 0, an = parseFloat(s.ancho) || 0, al = parseFloat(s.alto) || 0;
+          if (tipoAcero === 'estribos') { updatedA.ganchos = '0'; updatedA.traslapes = '0'; let perimetro = 0; if (['columna', 'dado'].includes(tipoEstructura)) { perimetro = (l + an) * 2; if (!updatedA.anchoCalc && al > 0) updatedA.anchoCalc = al.toString(); } else if (['trabe', 'nervadura', 'contratrabe'].includes(tipoEstructura)) { perimetro = (an + al) * 2; if (!updatedA.anchoCalc && l > 0) updatedA.anchoCalc = l.toString(); } if (perimetro > 0) updatedA.longitud = (perimetro - 0.06 + 0.12).toFixed(2); } 
+          else if (tipoAcero === 'longitudinal') { if (['columna', 'dado'].includes(tipoEstructura)) updatedA.longitud = al > 0 ? al.toString() : ''; else if (['trabe', 'nervadura', 'contratrabe'].includes(tipoEstructura)) updatedA.longitud = l > 0 ? l.toString() : ''; else if (['zapata aislada', 'zapata corrida', 'losa', 'losa nervada'].includes(tipoEstructura)) { updatedA.anchoCalc = an > 0 ? an.toString() : ''; updatedA.longitud = l > 0 ? l.toString() : ''; } } 
+          else if (tipoAcero === 'transversal' && ['zapata aislada', 'zapata corrida', 'losa', 'losa nervada'].includes(tipoEstructura)) { updatedA.anchoCalc = l > 0 ? l.toString() : ''; updatedA.longitud = an > 0 ? an.toString() : ''; } 
+          else if (tipoEstructura === 'muro') { if (tipoAcero === 'vertical') { updatedA.anchoCalc = l > 0 ? l.toString() : ''; updatedA.longitud = al > 0 ? al.toString() : ''; } else if (tipoAcero === 'horizontal') { updatedA.anchoCalc = al > 0 ? al.toString() : ''; updatedA.longitud = l > 0 ? l.toString() : ''; } }
+          if (tipoAcero === 'bastones' || tipoAcero === 'refuerzo adicional') updatedA.longitud = updatedA.anchoCalc || '';
+        }
+        if ((tipoAcero === 'bastones' || tipoAcero === 'refuerzo adicional') && field === 'anchoCalc') updatedA.longitud = value;
+        if (!isPorPiezas && (field === 'anchoCalc' || field === 'separacion' || field === 'tipo')) { const ancho = parseFloat(updatedA.anchoCalc), sep = parseFloat(updatedA.separacion); if (!isNaN(ancho) && ancho > 0 && !isNaN(sep) && sep > 0) updatedA.piezas = Math.floor(ancho / (sep / 100)) + 2; }
+        if (field === 'longitud' || field === 'tipo' || field === 'anchoCalc') { const longCalc = parseFloat(updatedA.longitud) || 0; updatedA.traslapes = longCalc >= 12 ? Math.floor(longCalc / 12).toString() : '0'; }
+        return updatedA;
+      })};
+    }));
+  }, [updateActiveEstructuras]);
+
+  const handleCopyStructureRow = useCallback((row) => { setCopiedStructureRow(row); setCopyStatus(\`copied-struct-\${row.id}\`); setTimeout(() => setCopyStatus(''), 2000); }, []);
+  const handlePasteStructureRow = useCallback((targetId) => { if (!copiedStructureRow) return; updateActiveEstructuras(prev => prev.map(s => { if (s.id !== targetId) return s; const clonedAceros = (copiedStructureRow.aceros || []).map(a => ({ ...a, id: \`AC-\${Date.now()}-\${Math.random().toString(36).substr(2, 5)}\` })); const clonedCasetones = (copiedStructureRow.casetones || []).map(c => ({ ...c, id: \`CAS-\${Date.now()}-\${Math.random().toString(36).substr(2, 5)}\` })); return { ...s, tipo: copiedStructureRow.tipo || '', largo: copiedStructureRow.largo || '', ancho: copiedStructureRow.ancho || '', alto: copiedStructureRow.alto || '', piezas: copiedStructureRow.piezas || '1', i: copiedStructureRow.i || false, aceros: clonedAceros, casetones: clonedCasetones }; })); setCopyStatus(\`pasted-struct-\${targetId}\`); setTimeout(() => setCopyStatus(''), 2000); }, [copiedStructureRow, updateActiveEstructuras]);
+
+  const resetSteelFieldToDefault = useCallback((structId, itemId, field) => {
+    const s = estructuras.find(e => e.id === structId); if (!s) return; const a = s.aceros?.find(x => x.id === itemId); if (!a) return;
+    const tipoEst = (s.tipo || '').toLowerCase(), tipoAcero = (a.tipo || '').toLowerCase(), l = parseFloat(s.largo) || 0, an = parseFloat(s.ancho) || 0, al = parseFloat(s.alto) || 0; let defVal = '';
+    if (field === 'anchoCalc') {
+      if (tipoAcero === 'estribos') { if (['columna', 'dado'].includes(tipoEst)) defVal = al > 0 ? al.toString() : ''; else if (['trabe', 'nervadura', 'contratrabe'].includes(tipoEst)) defVal = l > 0 ? l.toString() : ''; } 
+      else if (tipoEst === 'muro') { if (tipoAcero === 'vertical') defVal = l > 0 ? l.toString() : ''; else if (tipoAcero === 'horizontal') defVal = al > 0 ? al.toString() : ''; } 
+      else if (tipoAcero === 'longitudinal') { if (['columna', 'dado'].includes(tipoEst)) defVal = al > 0 ? al.toString() : ''; else if (['trabe', 'nervadura', 'contratrabe'].includes(tipoEst)) defVal = l > 0 ? l.toString() : ''; else if (['zapata aislada', 'zapata corrida', 'losa', 'losa nervada'].includes(tipoEst)) defVal = an > 0 ? an.toString() : ''; } 
+      else if (tipoAcero === 'transversal' && ['zapata aislada', 'zapata corrida', 'losa', 'losa nervada'].includes(tipoEst)) defVal = l > 0 ? l.toString() : ''; 
+      else if (tipoAcero === 'bastones' || tipoAcero === 'refuerzo adicional') defVal = l > 0 ? l.toString() : ''; 
+    } else if (field === 'longitud') {
+      if (tipoAcero === 'estribos') { let perimetro = 0; if (['columna', 'dado'].includes(tipoEst)) perimetro = (l + an) * 2; else if (['trabe', 'nervadura', 'contratrabe'].includes(tipoEst)) perimetro = (an + al) * 2; if (perimetro > 0) defVal = (perimetro - 0.06 + 0.12).toFixed(2); } 
+      else if (tipoAcero === 'longitudinal') { if (['columna', 'dado'].includes(tipoEst)) defVal = al > 0 ? al.toString() : ''; else if (['trabe', 'nervadura', 'contratrabe', 'zapata aislada', 'zapata corrida', 'losa', 'losa nervada'].includes(tipoEst)) defVal = l > 0 ? l.toString() : ''; } 
+      else if (tipoAcero === 'transversal' && ['zapata aislada', 'zapata corrida', 'losa', 'losa nervada'].includes(tipoEst)) defVal = an > 0 ? an.toString() : ''; 
+      else if (tipoEst === 'muro') { if (tipoAcero === 'vertical') defVal = al > 0 ? al.toString() : ''; else if (tipoAcero === 'horizontal') defVal = l > 0 ? l.toString() : ''; } 
+      else if (tipoAcero === 'bastones' || tipoAcero === 'refuerzo adicional') defVal = a.anchoCalc || '';
+    } else if (field === 'piezas') {
+      const isPorPiezas = tipoAcero === 'bastones' || tipoAcero === 'refuerzo adicional' || (tipoAcero === 'longitudinal' && ['columna', 'dado', 'trabe', 'nervadura', 'contratrabe'].includes(tipoEst));
+      if (!isPorPiezas) { const anchoC = parseFloat(a.anchoCalc), sep = parseFloat(a.separacion); if (!isNaN(anchoC) && anchoC > 0 && !isNaN(sep) && sep > 0) defVal = (Math.floor(anchoC / (sep / 100)) + 2).toString(); }
+    } else if (field === 'traslapes') { const longCalc = parseFloat(a.longitud) || 0; defVal = longCalc >= 12 ? Math.floor(longCalc / 12).toString() : '0'; }
+    if (defVal !== '' && defVal !== a[field]) updateSteelItem(structId, itemId, field, defVal);
+  }, [estructuras, updateSteelItem]);

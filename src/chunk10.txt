@@ -1,0 +1,45 @@
+                   Object.entries(estructuraSummary.breakdown).forEach(([tipo, data]) => {
+                      if (data.concreto === 0 && data.cimbra === 0 && data.cimbraFrontera === 0 && data.aceroKg === 0 && data.casetones === 0 && data.excavacion === 0 && data.plantilla === 0) return;
+                      const isCim = data.isCimentacion;
+                      const concText = isCim ? '-' : (data.concreto > 0 ? data.concreto.toFixed(2) : '-');
+                      html += `<tr style="text-align: center; background-color: #ffffff; height: 15pt;">
+                         <td style="border: none;"></td>
+                         <td style="border: 1px solid #f8cbad; font-weight: bold; text-align: left; padding-left: 8px; color: #000000; font-size: 10pt; vertical-align: middle;">${tipo}</td>
+                         <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${concText}</td>
+                         <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.casetones > 0 ? data.casetones.toFixed(2) : '-'}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.cimbra > 0 ? data.cimbra.toFixed(2) : '-'}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.cimbraFrontera > 0 ? data.cimbraFrontera.toFixed(2) : '-'}</td>
+                         <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.aceroKg > 0 ? data.aceroKg.toFixed(2) : '-'}</td>
+                      </tr>`;
+                   });
+                   html += `</tbody></table>`;
+                   
+                   exportFormattedExcel(html, `Generador_Estructuras_${niveles.find(n=>n.id===activeLevelId)?.nombre||'Nivel'}`);
+               }} className="px-6 py-2 bg-emerald-600 text-white font-black rounded-lg hover:bg-emerald-500 text-[10px] uppercase tracking-wider flex items-center gap-2 ml-auto"><FileDown size={14}/> Exportar Excel</button>
+             </div>
+             <div className="bg-slate-50 p-6 border-t border-slate-200 shrink-0">
+               <div className="flex items-center justify-between mb-6"><h3 className="text-sm font-black uppercase tracking-widest text-slate-800 flex items-center gap-2"><LayoutDashboard size={18} className="text-amber-600" /> Resumen y Desglose para Exportación</h3></div>
+               <div className="flex flex-col lg:flex-row gap-8">
+                  <div className="w-full lg:w-[30%] flex flex-col gap-4">
+                     <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-teal-400"></div><span className="text-[10px] font-black text-teal-600 uppercase tracking-widest block mb-1">Concreto Cimentación</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalConcretoCimentacion.toFixed(2)}</span><span className="text-teal-400 font-black text-xl">m3</span></div></div>
+                     <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-blue-400"></div><span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Concreto Estructura</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalConcretoEstructura.toFixed(2)}</span><span className="text-blue-400 font-black text-xl">m3</span></div></div>
+                     <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-indigo-400"></div><span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block mb-1">Concreto Columnas</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalConcretoColumnas.toFixed(2)}</span><span className="text-indigo-400 font-black text-xl">m3</span></div></div>
+                     <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-purple-400"></div><span className="text-[10px] font-black text-purple-600 uppercase tracking-widest block mb-1">Concreto Muros</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalConcretoMuros.toFixed(2)}</span><span className="text-purple-400 font-black text-xl">m3</span></div></div>
+                     <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-amber-400"></div><span className="text-[10px] font-black text-amber-600 uppercase tracking-widest block mb-1">Total Cimbra</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalCimbra.toFixed(2)}</span><span className="text-amber-400 font-black text-xl">m2/ml</span></div></div>
+                     
+                     {estructuraSummary.totalCasetonesGeneral > 0 && (
+                        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-sky-400"></div><span className="text-[10px] font-black text-sky-600 uppercase tracking-widest block mb-1">Total Casetones</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalCasetonesGeneral.toFixed(2)}</span><span className="text-sky-500 font-black text-xl">m3</span></div></div>
+                     )}
+                     {estructuraSummary.totalPlantilla > 0 && (
+                        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-slate-400"></div><span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Total Plantilla</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalPlantilla.toFixed(2)}</span><span className="text-slate-400 font-black text-xl">m2</span></div></div>
+                     )}
+                     {estructuraSummary.totalExcavacion > 0 && (
+                        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-red-400"></div><span className="text-[10px] font-black text-red-500 uppercase tracking-widest block mb-1">Total Excavación</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalExcavacion.toFixed(2)}</span><span className="text-red-400 font-black text-xl">m3</span></div></div>
+                     )}
+                     {estructuraSummary.totalAfine > 0 && (
+                        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-yellow-400"></div><span className="text-[10px] font-black text-yellow-600 uppercase tracking-widest block mb-1">Total Afine</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalAfine.toFixed(2)}</span><span className="text-yellow-500 font-black text-xl">m2</span></div></div>
+                     )}
+                     {estructuraSummary.totalRelleno > 0 && (
+                        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden"><div className="absolute left-0 top-0 bottom-0 w-2 bg-lime-400"></div><span className="text-[10px] font-black text-lime-600 uppercase tracking-widest block mb-1">Total Relleno</span><div className="flex justify-between items-end"><span className="text-3xl font-black text-slate-800">{estructuraSummary.totalRelleno.toFixed(2)}</span><span className="text-lime-500 font-black text-xl">m3</span></div></div>
+                     )}
+                  </div>
