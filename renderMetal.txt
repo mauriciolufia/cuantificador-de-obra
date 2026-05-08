@@ -1,0 +1,3291 @@
+93:  return (
+94-    match[1] +
+95-    (parseInt(match[2], 10) + 1).toString().padStart(match[2].length, "0")
+96-  );
+97-};
+98-
+99-const exportExcelFile = (content, filename, includeBOM = true) => {
+100-  const blob = new Blob([includeBOM ? "\ufeff" + content : content], {
+101-    type: "application/vnd.ms-excel" + (includeBOM ? ";charset=utf-8" : ""),
+102-  });
+103-  const url = URL.createObjectURL(blob);
+104-  const link = document.createElement("a");
+105-  link.href = url;
+106-  link.download = filename;
+107-  link.click();
+108-  URL.revokeObjectURL(url);
+109-};
+110-
+111-const exportFormattedExcel = (tableHtml, filename) => {
+112-  const template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+113-    <head>
+114-      <meta charset="utf-8">
+115-      <style> 
+116-        table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt; margin-bottom: 20px; table-layout: auto; } 
+117-        th, td { border: 1px solid #cbd5e1; padding: 6px; vertical-align: middle; white-space: normal !important; word-wrap: break-word !important; } 
+118-        th { font-weight: bold; text-align: center; }
+119-        .wrap { white-space: normal !important; mso-height-source: auto; }
+120-      </style>
+121-    </head>
+122-    <body>${tableHtml}</body>
+123-  </html>`;
+124-  const blob = new Blob(["\ufeff" + template], {
+125-    type: "application/vnd.ms-excel;charset=utf-8",
+126-  });
+127-  const url = URL.createObjectURL(blob);
+128-  const link = document.createElement("a");
+129-  link.href = url;
+130-  link.download = filename.endsWith(".xls") ? filename : filename + ".xls";
+131-  link.click();
+132-  URL.revokeObjectURL(url);
+133-};
+134-
+135-function LoadingScreen({ text }) {
+136:  return (
+137-    <div className="min-h-screen bg-[#fcfdfe] flex flex-col items-center justify-center p-8">
+138-      <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-6"></div>
+139-      <h2 className="text-xl font-black text-slate-800 uppercase tracking-widest animate-pulse">
+140-        {text}
+141-      </h2>
+142-      <p className="text-xs text-slate-400 mt-4 uppercase tracking-widest">
+143-        Sincronizando con la nube...
+144-      </p>
+145-    </div>
+146-  );
+147-}
+148-
+149-const usePersistentState = (key, initialValue, user) => {
+150-  const [state, setState] = useState(() => {
+151-    const localData = localStorage.getItem(key);
+152-    if (localData) {
+153-      try {
+154-        const parsed = JSON.parse(localData);
+155-        return typeof initialValue === "object" && !Array.isArray(initialValue)
+156-          ? { ...initialValue, ...parsed }
+157-          : parsed;
+158-      } catch (e) {
+159-        return initialValue;
+160-      }
+161-    }
+162-    return initialValue;
+163-  });
+164-  const [isLoaded, setIsLoaded] = useState(false);
+165-  const [isSaving, setIsSaving] = useState(false);
+166-  const stateRef = useRef(state);
+167-  useEffect(() => {
+168-    stateRef.current = state;
+169-  }, [state]);
+170-
+171-  useEffect(() => {
+172-    if (!user || !db) {
+173-      setIsLoaded(true);
+174-      return;
+175-    }
+176-    const docRef = doc(
+177-      db,
+178-      "artifacts",
+179-      appId,
+180-      "users",
+181-      user.uid,
+182-      "global",
+183-      "settings",
+184-    );
+185-    getDoc(docRef)
+186-      .then((snap) => {
+187-        if (snap.exists() && snap.data()[key] !== undefined) {
+188-          const fetchedVal = snap.data()[key];
+189-          setState((prev) =>
+190-            typeof initialValue === "object" && !Array.isArray(initialValue)
+191-              ? { ...prev, ...fetchedVal }
+192-              : fetchedVal,
+193-          );
+194-        }
+195-        setIsLoaded(true);
+196-      })
+197-      .catch((e) => {
+198-        console.error(e);
+199-        setIsLoaded(true);
+200-      });
+201-  }, [key, user]);
+202-
+203-  useEffect(() => {
+204-    if (!isLoaded) return;
+205-    localStorage.setItem(key, JSON.stringify(state));
+206-    if (!user || !db) return;
+207-    setIsSaving(true);
+208-    const timeout = setTimeout(() => {
+209-      const docRef = doc(
+210-        db,
+211-        "artifacts",
+212-        appId,
+213-        "users",
+214-        user.uid,
+215-        "global",
+216-        "settings",
+217-      );
+218-      setDoc(docRef, { [key]: state }, { merge: true })
+219-        .then(() => setIsSaving(false))
+220-        .catch((e) => {
+221-          console.error(e);
+222-          setIsSaving(false);
+223-        });
+224-    }, 1000);
+225:    return () => clearTimeout(timeout);
+226-  }, [state, isLoaded, key, user]);
+227-
+228-  useEffect(() => {
+229-    const handleVisibility = () => {
+230-      if (document.visibilityState === "hidden" && user && db) {
+231-        const docRef = doc(
+232-          db,
+233-          "artifacts",
+234-          appId,
+235-          "users",
+236-          user.uid,
+237-          "global",
+238-          "settings",
+239-        );
+240-        setDoc(docRef, { [key]: stateRef.current }, { merge: true });
+241-      }
+242-    };
+243-    window.addEventListener("visibilitychange", handleVisibility);
+244:    return () =>
+245-      window.removeEventListener("visibilitychange", handleVisibility);
+246-  }, [key, user]);
+247-
+248-  return [state, setState, isLoaded, isSaving];
+249-};
+250-
+251-const useProjectState = (projectId, baseKey, initialValue, user) => {
+252-  const localKey = `xdifica_proj_${projectId}_${baseKey}`;
+253-  const [state, setState] = useState(() => {
+254-    const localData = localStorage.getItem(localKey);
+255-    if (localData) {
+256-      try {
+257-        const parsed = JSON.parse(localData);
+258-        return typeof initialValue === "object" && !Array.isArray(initialValue)
+259-          ? { ...initialValue, ...parsed }
+260-          : parsed;
+261-      } catch (e) {
+262-        return initialValue;
+263-      }
+264-    }
+265-    return initialValue;
+266-  });
+267-  const [isLoaded, setIsLoaded] = useState(false);
+268-  const [isSaving, setIsSaving] = useState(false);
+269-  const stateRef = useRef(state);
+270-  useEffect(() => {
+271-    stateRef.current = state;
+272-  }, [state]);
+273-
+274-  useEffect(() => {
+275-    if (!user || !db) {
+276-      setIsLoaded(true);
+277-      return;
+278-    }
+279-    const docRef = doc(
+280-      db,
+281-      "artifacts",
+282-      appId,
+283-      "users",
+284-      user.uid,
+285-      "projects",
+286-      projectId,
+287-    );
+288-    getDoc(docRef)
+289-      .then((snap) => {
+290-        if (snap.exists() && snap.data()[baseKey] !== undefined) {
+291-          const fetchedVal = snap.data()[baseKey];
+292-          setState((prev) =>
+293-            typeof initialValue === "object" && !Array.isArray(initialValue)
+294-              ? { ...prev, ...fetchedVal }
+295-              : fetchedVal,
+296-          );
+297-        }
+298-        setIsLoaded(true);
+299-      })
+300-      .catch((e) => {
+301-        console.error(e);
+302-        setIsLoaded(true);
+303-      });
+304-  }, [projectId, baseKey, user]);
+305-
+306-  useEffect(() => {
+307-    if (!isLoaded) return;
+308-    localStorage.setItem(localKey, JSON.stringify(state));
+309-    if (!user || !db) return;
+310-    setIsSaving(true);
+311-    const timeout = setTimeout(() => {
+312-      const docRef = doc(
+313-        db,
+314-        "artifacts",
+315-        appId,
+316-        "users",
+317-        user.uid,
+318-        "projects",
+319-        projectId,
+320-      );
+321-      setDoc(docRef, { [baseKey]: state }, { merge: true })
+322-        .then(() => setIsSaving(false))
+323-        .catch((e) => {
+324-          console.error(e);
+325-          setIsSaving(false);
+326-        });
+327-    }, 1000);
+328:    return () => clearTimeout(timeout);
+329-  }, [state, isLoaded, projectId, baseKey, user]);
+330-
+331-  useEffect(() => {
+332-    const handleVisibility = () => {
+333-      if (document.visibilityState === "hidden" && user && db) {
+334-        const docRef = doc(
+335-          db,
+336-          "artifacts",
+337-          appId,
+338-          "users",
+339-          user.uid,
+340-          "projects",
+341-          projectId,
+342-        );
+343-        setDoc(docRef, { [baseKey]: stateRef.current }, { merge: true });
+344-      }
+345-    };
+346-    window.addEventListener("visibilitychange", handleVisibility);
+347:    return () =>
+348-      window.removeEventListener("visibilitychange", handleVisibility);
+349-  }, [projectId, baseKey, user]);
+350-
+351-  return [state, setState, isLoaded, isSaving];
+352-};
+353-
+354-const DebouncedCell = ({
+355-  value,
+356-  onChange,
+357-  onDoubleClick,
+358-  title,
+359-  isTextArea = false,
+360-  className = "",
+361-  rows = 1,
+362-  placeholder = "",
+363-  readOnly = false,
+364-  type = "text",
+365-  min,
+366-  step,
+367-}) => {
+368-  const formatValue = (val) => {
+369-    if (val === null || val === undefined) return "";
+370-    if (type === "number" && step === "0.01" && val !== "") {
+371-      const parsed = parseFloat(val);
+372-      return isNaN(parsed) ? "" : parsed.toFixed(2);
+373-    }
+374-    return val;
+375-  };
+376-  const [localValue, setLocalValue] = useState(formatValue(value));
+377-  useEffect(() => {
+378-    setLocalValue(formatValue(value));
+379-  }, [value, type, step]);
+380-  const handleBlur = () => {
+381-    let finalValue = localValue;
+382-    if (type === "number" && step === "0.01" && finalValue !== "") {
+383-      const parsed = parseFloat(finalValue);
+384-      if (!isNaN(parsed)) {
+385-        finalValue = parsed.toFixed(2);
+386-        setLocalValue(finalValue);
+387-      }
+388-    }
+389-    if (finalValue !== value) onChange(finalValue);
+390-  };
+391-  if (isTextArea)
+392:    return (
+393-      <textarea
+394-        className={`resize-y ${className}`}
+395-        rows={rows}
+396-        value={localValue !== undefined ? localValue : ""}
+397-        onChange={(e) => setLocalValue(e.target.value)}
+398-        onBlur={handleBlur}
+399-        onFocus={(e) => e.target.select()}
+400-        onDoubleClick={onDoubleClick}
+401-        title={title}
+402-        placeholder={placeholder}
+403-        readOnly={readOnly}
+404-        autoComplete="off"
+405-        spellCheck="false"
+406-      />
+407-    );
+408:  return (
+409-    <input
+410-      type={type}
+411-      min={min}
+412-      step={step}
+413-      className={className}
+414-      value={localValue !== undefined ? localValue : ""}
+415-      onChange={(e) => setLocalValue(e.target.value)}
+416-      onBlur={handleBlur}
+417-      onFocus={(e) => e.target.select()}
+418-      onDoubleClick={onDoubleClick}
+419-      onKeyDown={(e) => {
+420-        if (e.key === "Enter") e.target.blur();
+421-      }}
+422-      title={title}
+423-      placeholder={placeholder}
+424-      readOnly={readOnly}
+425-      autoComplete="off"
+426-      spellCheck="false"
+427-    />
+428-  );
+429-};
+430-
+431-const GeneratorRow = React.memo(
+432-  ({
+433-    row,
+434-    index,
+435-    updateRow,
+436-    deleteRow,
+437-    calculateVolume,
+438-    isSelected,
+439-    onToggleSelect,
+440-  }) => {
+441-    const [localEje, setLocalEje] = useState(row.eje || "");
+442-    const [localClave, setLocalClave] = useState(row.claveLoc || "");
+443-    useEffect(() => {
+444-      setLocalEje(row.eje || "");
+445-      setLocalClave(row.claveLoc || "");
+446-    }, [row.eje, row.claveLoc]);
+447-    const handleBlur = (field, value) => {
+448-      if (row[field] !== value) updateRow(row.id, field, value);
+449-    };
+450:    return (
+451-      <tr
+452-        className={`transition-colors ${isSelected ? "bg-blue-50/50" : "hover:bg-slate-50"}`}
+453-      >
+454-        <td className="px-2 py-1.5 border-r border-slate-300 text-center relative">
+455-          <div className="flex items-center justify-center gap-2">
+456-            <button
+457-              onClick={() => onToggleSelect(row.id)}
+458-              className={`${isSelected ? "text-blue-600" : "text-slate-300 hover:text-slate-400"}`}
+459-            >
+460-              {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+461-            </button>
+462-            <span className="font-black text-slate-300 text-[10px] w-4">
+463-              {index + 1}
+464-            </span>
+465-          </div>
+466-        </td>
+467-        <td className="px-2 py-1.5 border-r border-slate-300">
+468-          <div className="flex gap-2 group/row">
+469-            <input
+470-              placeholder="Eje/Ref"
+471-              className="w-[40%] p-1.5 bg-white border border-slate-200 rounded text-[11px] font-bold uppercase outline-none focus:ring-1 focus:ring-blue-500"
+472-              value={localEje}
+473-              onChange={(e) => setLocalEje(e.target.value)}
+474-              onBlur={(e) => handleBlur("eje", e.target.value)}
+475-            />
+476-            <input
+477-              placeholder="Clave"
+478-              className="w-[60%] p-1.5 bg-white border border-slate-200 rounded text-[11px] font-bold uppercase outline-none focus:ring-1 focus:ring-blue-500"
+479-              value={localClave}
+480-              onChange={(e) => setLocalClave(e.target.value)}
+481-              onBlur={(e) => handleBlur("claveLoc", e.target.value)}
+482-            />
+483-          </div>
+484-        </td>
+485-        <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
+486-          <DebouncedCell
+487-            type="number"
+488-            step="0.01"
+489-            className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
+490-            value={row.largo}
+491-            onChange={(v) => updateRow(row.id, "largo", v)}
+492-          />
+493-        </td>
+494-        <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
+495-          <DebouncedCell
+496-            type="number"
+497-            step="0.01"
+498-            className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
+499-            value={row.ancho}
+500-            onChange={(v) => updateRow(row.id, "ancho", v)}
+501-          />
+502-        </td>
+503-        <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
+504-          <DebouncedCell
+505-            type="number"
+506-            step="0.01"
+507-            className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
+508-            value={row.kg_ml}
+509-            onChange={(v) => updateRow(row.id, "kg_ml", v)}
+510-          />
+511-        </td>
+512-        <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
+513-          <DebouncedCell
+514-            type="number"
+515-            step="0.01"
+516-            className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
+517-            value={row.alto}
+518-            onChange={(v) => updateRow(row.id, "alto", v)}
+519-          />
+520-        </td>
+521-        <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black bg-slate-50/50 text-blue-800 text-[11px]">
+522-          {(() => {
+523-            const l = parseFloat(row.largo); const lAbs = isNaN(l) || l === 0 ? 0 : Math.abs(l);
+524-            const a = parseFloat(row.ancho); const aAbs = isNaN(a) || a === 0 ? 0 : Math.abs(a);
+525-            const h = parseFloat(row.alto);  const hAbs = isNaN(h) || h === 0 ? 0 : Math.abs(h);
+526-            const k = parseFloat(row.kg_ml); const kAbs = isNaN(k) || k === 0 ? 0 : Math.abs(k);
+527-            const isActuallyZero = lAbs === 0 && aAbs === 0 && hAbs === 0 && kAbs === 0;
+528-            const vol = isActuallyZero ? 0 : ((lAbs > 0 ? lAbs : 1) * (aAbs > 0 ? aAbs : 1) * (hAbs > 0 ? hAbs : 1) * (kAbs > 0 ? kAbs : 1));
+529-            return vol.toLocaleString(undefined, {
+530-              minimumFractionDigits: 2,
+531-              maximumFractionDigits: 2,
+532-            });
+533-          })()}
+534-        </td>
+535-        <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
+536-          <DebouncedCell
+537-            type="number"
+538-            className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
+539-            value={row.piezas}
+540-            onChange={(v) => updateRow(row.id, "piezas", v)}
+541-          />
+542-        </td>
+543-        <td className="px-2 py-1.5 border-r border-slate-300 text-right pr-4 font-black bg-slate-50/50 text-blue-900 text-[12px]">
+544-          {calculateVolume(row).toLocaleString(undefined, {
+545-            minimumFractionDigits: 2,
+546-            maximumFractionDigits: 2,
+547-          })}
+548-        </td>
+549-        <td className="px-2 py-1.5 text-center">
+550-          <button
+551-            onClick={() => deleteRow(row.id)}
+552-            className="text-slate-300 hover:text-red-500 transition-colors p-1"
+553-          >
+554-            <Trash2 size={16} />
+555-          </button>
+556-        </td>
+557-      </tr>
+558-    );
+559-  },
+560-);
+561-
+562-function ProjectWorkspace({
+563-  projectId,
+564-  onBack,
+565-  onUpdateMetadata,
+--
+745:    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+746-  }, [isSavingAny]);
+747-
+748-  useEffect(() => {
+749-    if (
+750-      l2 &&
+751-      niveles.length > 0 &&
+752-      !niveles.find((n) => n.id === activeLevelId)
+753-    ) {
+754-      setActiveLevelId(niveles[0].id);
+755-    }
+756-  }, [niveles, activeLevelId, l2]);
+757-
+758-  const activePartida = useMemo(
+759-    () => partidas.find((p) => p.id === activePartidaId),
+760-    [partidas, activePartidaId],
+761-  );
+762-  const conceptos = activePartida ? activePartida.conceptos : [];
+763-  const generadores = activePartida ? activePartida.generadores : {};
+764-  const murosData = activePartida ? activePartida.muros || {} : {};
+765-  const muros = Array.isArray(murosData)
+766-    ? murosData
+767-    : murosData[activeLevelId] || [];
+768-  const estructurasData = activePartida ? activePartida.estructuras || {} : {};
+769-  const estructuras = Array.isArray(estructurasData)
+770-    ? estructurasData
+771-    : estructurasData[activeLevelId] || [];
+772-
+773-  const metalData = activePartida ? activePartida.metal || {} : {};
+774-  const metalEstructuras = Array.isArray(metalData)
+775-    ? metalData
+776-    : metalData[activeLevelId] || [];
+777-
+778-  const todasLasEstructuras = useMemo(() => {
+779-    if (!activePartida || !activePartida.estructuras) return [];
+780-    const data = activePartida.estructuras;
+781-    if (Array.isArray(data))
+782-      return data.map((e) => ({
+783-        ...e,
+784-        _nivelInfo: "General",
+785-        _nivelId: "general",
+786-      }));
+787-    let all = [];
+788-    Object.keys(data).forEach((lvlId) => {
+789-      const nivelName = niveles.find((n) => n.id === lvlId)?.nombre || lvlId;
+790-      all = [
+791-        ...all,
+792-        ...(data[lvlId] || []).map((e) => ({
+793-          ...e,
+794-          _nivelInfo: nivelName,
+795-          _nivelId: lvlId,
+796-        })),
+797-      ];
+798-    });
+799-    return all;
+800-  }, [activePartida, niveles]);
+801-
+802-  // Actualizadores de estado
+803-  const updateActiveConceptos = useCallback(
+804-    (upd) =>
+805-      setPartidas((prev) =>
+806-        prev.map((p) =>
+807-          p.id === activePartidaId
+808-            ? {
+809-                ...p,
+810-                conceptos: typeof upd === "function" ? upd(p.conceptos) : upd,
+811-              }
+812-            : p,
+813-        ),
+814-      ),
+815-    [activePartidaId, setPartidas],
+816-  );
+817-  const updateActiveGeneradores = useCallback(
+818-    (upd) =>
+819-      setPartidas((prev) =>
+820-        prev.map((p) =>
+821-          p.id === activePartidaId
+822-            ? {
+823-                ...p,
+824-                generadores:
+825-                  typeof upd === "function" ? upd(p.generadores) : upd,
+826-              }
+827-            : p,
+828-        ),
+829-      ),
+830-    [activePartidaId, setPartidas],
+831-  );
+832-  const updateActiveMuros = useCallback(
+833-    (upd) => {
+834-      setPartidas((prev) =>
+835-        prev.map((p) => {
+836-          if (p.id !== activePartidaId) return p;
+837-          const data = p.muros || {};
+838-          const isArr = Array.isArray(data);
+839-          const nextData =
+840-            typeof upd === "function"
+841-              ? upd(isArr ? data : data[activeLevelId] || [])
+842-              : upd;
+843-          return {
+844-            ...p,
+845-            muros: isArr
+846-              ? { [activeLevelId]: nextData }
+847-              : { ...data, [activeLevelId]: nextData },
+848-          };
+849-        }),
+850-      );
+851-    },
+852-    [activePartidaId, activeLevelId, setPartidas],
+853-  );
+854-  const updateActiveEstructuras = useCallback(
+855-    (upd) => {
+856-      setPartidas((prev) =>
+857-        prev.map((p) => {
+858-          if (p.id !== activePartidaId) return p;
+859-          const data = p.estructuras || {};
+860-          const isArr = Array.isArray(data);
+--
+987:    return (
+988-      Math.round(
+989-        (l > 0 ? l : 1) * (a > 0 ? a : 1) * (h > 0 ? h : 1) * (k > 0 ? k : 1) * p * 100,
+990-      ) / 100
+991-    );
+992-  }, []);
+993-  const getVolumenNivel = (idC, idN) =>
+994-    generadores[idC]?.[idN]?.rows?.reduce(
+995-      (acc, item) => acc + calculateVolumeRow(item),
+996-      0,
+997-    ) || 0;
+998-  const getTotalConcepto = (idC) =>
+999-    niveles.reduce((acc, n) => acc + getVolumenNivel(idC, n.id), 0);
+1000-
+1001-  const updateConceptoField = useCallback(
+1002-    (id, field, value) =>
+1003-      updateActiveConceptos((prev) =>
+1004-        prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)),
+1005-      ),
+1006-    [updateActiveConceptos],
+1007-  );
+1008-
+1009-  const updateConceptoId = useCallback(
+1010-    (oldId, newId) => {
+1011-      if (oldId === newId || !newId.trim()) return;
+1012-      updateActiveConceptos((prev) => {
+1013-        if (prev.some((c) => c.id === newId)) return prev;
+1014-        const matched = catalogoConceptos.find((cat) => cat.id === newId);
+1015-        return prev.map((c) =>
+1016-          c.id === oldId
+1017-            ? {
+1018-                ...c,
+1019-                id: newId,
+1020-                ...(matched
+1021-                  ? {
+1022-                      clave: matched.clave || "",
+1023-                      cc: matched.cc || "",
+1024-                      justificacion: matched.justificacion || "",
+1025-                      descripcion: matched.descripcion || "",
+1026-                      unidad: matched.unidad || "m2",
+1027-                    }
+1028-                  : {}),
+1029-              }
+1030-            : c,
+1031-        );
+1032-      });
+1033-      updateActiveGeneradores((prev) => {
+1034-        if (!prev[oldId]) return prev;
+1035-        const newState = { ...prev };
+1036-        newState[newId] = newState[oldId];
+1037-        delete newState[oldId];
+1038-        return newState;
+1039-      });
+1040-      setSelectedIds((prev) => prev.map((id) => (id === oldId ? newId : id)));
+1041-    },
+1042-    [updateActiveConceptos, updateActiveGeneradores, catalogoConceptos],
+1043-  );
+1044-
+1045-  const updateRowGenerador = useCallback(
+1046-    (rowId, field, value) => {
+1047-      if (!editingModal) return;
+1048-      const { concepto, nivel } = editingModal;
+1049-      updateActiveGeneradores((prev) => {
+1050-        const currentConcept = prev[concepto.id] || {},
+1051-          currentLevel = currentConcept[nivel.id] || { rows: [] };
+1052-        return {
+1053-          ...prev,
+1054-          [concepto.id]: {
+1055-            ...currentConcept,
+1056-            [nivel.id]: {
+1057-              ...currentLevel,
+1058-              rows: currentLevel.rows.map((r) =>
+1059-                r.id === rowId ? { ...r, [field]: value } : r,
+1060-              ),
+1061-            },
+1062-          },
+1063-        };
+1064-      });
+1065-    },
+1066-    [editingModal, updateActiveGeneradores],
+1067-  );
+1068-  const deleteRowGenerador = useCallback(
+1069-    (rowId) => {
+1070-      if (!editingModal) return;
+1071-      const { concepto, nivel } = editingModal;
+1072-      updateActiveGeneradores((prev) => {
+1073-        const currentConcept = prev[concepto.id] || {},
+1074-          currentLevel = currentConcept[nivel.id];
+1075-        if (!currentLevel) return prev;
+1076-        return {
+1077-          ...prev,
+1078-          [concepto.id]: {
+1079-            ...currentConcept,
+1080-            [nivel.id]: {
+1081-              ...currentLevel,
+1082-              rows: currentLevel.rows.filter(
+1083-                (r) => r.id !== rowId && !selectedGeneratorRows.includes(r.id),
+1084-              ),
+1085-            },
+1086-          },
+1087-        };
+1088-      });
+1089-      setSelectedGeneratorRows((prev) => prev.filter((id) => id !== rowId));
+1090-    },
+1091-    [editingModal, updateActiveGeneradores, selectedGeneratorRows],
+1092-  );
+1093-
+1094-  const handlePasteImage = (e) => {
+1095-    const items = e.clipboardData.items;
+1096-    for (let i = 0; i < items.length; i++) {
+1097-      if (items[i].type.indexOf("image") !== -1) {
+1098-        const reader = new FileReader();
+1099-        reader.onload = (event) => {
+1100-          if (!editingModal) return;
+1101-          updateActiveGeneradores((prev) => {
+1102-            const currentConcept = prev[editingModal.concepto.id] || {},
+--
+2540:        return (e.casetones || []).map((c) => ({
+2541-          ...base,
+2542-          claveLoc:
+2543-            (base.claveLoc ? base.claveLoc + " " : "") +
+2544-            `(Casetón ${c.clave || ""})`.trim(),
+2545-          largo: c.largo,
+2546-          ancho: c.ancho,
+2547-          alto: c.alto,
+2548-          piezas: (parseFloat(c.piezas) || 1) * p,
+2549-        }));
+2550-      });
+2551-    } else if (material.startsWith("acero-")) {
+2552-      const numVar = material.split("-")[1];
+2553-      rowsToCopy = filtered.flatMap((e) =>
+2554-        (e.aceros || [])
+2555-          .filter((a) => numVar === "total" || a.numVarilla === numVar)
+2556-          .map((a) => ({
+2557-            eje: e.eje || "",
+2558-            claveLoc: (
+2559-              (e.clave ? e.clave + " " : "") +
+2560-              `${a.tipo || "Acero"} #${a.numVarilla || "-"}`
+2561-            ).trim(),
+2562-            largo: calcAceroItem(a).mlPorPieza,
+2563-            ancho: "",
+2564-            kg_ml: PESOS_VARILLA[a.numVarilla || "-"] || 0,
+2565-            alto: "",
+2566-            piezas: (parseFloat(a.piezas) || 1) * (parseFloat(e.piezas) || 1),
+2567-          })),
+2568-      );
+2569-    }
+2570-    setClipboardRows(rowsToCopy);
+2571-    copyRowsToExcelClipboard(rowsToCopy);
+2572-    setCopyStatus(`copied-${tipoKey}-${material}`);
+2573-    setTimeout(() => setCopyStatus(""), 2000);
+2574-  };
+2575-
+2576-  const updateEstructuraField = useCallback(
+2577-    (structId, field, value) => {
+2578-      updateActiveEstructuras((prev) =>
+2579-        prev.map((s) => {
+2580-          if (s.id !== structId) return s;
+2581-          const newS = { ...s, [field]: value };
+2582-          if (["largo", "ancho", "alto", "tipo"].includes(field)) {
+2583-            newS.aceros = (newS.aceros || []).map((a) => {
+2584-              const updatedA = { ...a },
+2585-                tAcero = (updatedA.tipo || "").toLowerCase(),
+2586-                tEst = (newS.tipo || "").toLowerCase(),
+2587-                l = parseFloat(newS.largo) || 0,
+2588-                an = parseFloat(newS.ancho) || 0,
+2589-                al = parseFloat(newS.alto) || 0;
+2590-              if (tAcero === "longitudinal") {
+2591-                if (["columna", "columna circular", "dado", "pilas", "pila"].includes(tEst))
+2592-                  updatedA.longitud = al > 0 ? al.toString() : "";
+2593-                else if (["trabe", "nervadura", "contratrabe"].includes(tEst))
+2594-                  updatedA.longitud = l > 0 ? l.toString() : "";
+2595-                else if (
+2596-                  [
+2597-                    "zapata aislada",
+2598-                    "zapata corrida",
+2599-                    "losa",
+2600-                    "losa nervada",
+2601-                  ].includes(tEst)
+2602-                ) {
+2603-                  updatedA.anchoCalc = an > 0 ? an.toString() : "";
+2604-                  updatedA.longitud = l > 0 ? l.toString() : "";
+2605-                }
+2606-                const longCalc = parseFloat(updatedA.longitud) || 0;
+2607-                updatedA.traslapes =
+2608-                  longCalc >= 12 ? Math.floor(longCalc / 12).toString() : "0";
+2609-              }
+2610-              if (
+2611-                tAcero === "transversal" &&
+2612-                [
+2613-                  "zapata aislada",
+2614-                  "zapata corrida",
+2615-                  "losa",
+2616-                  "losa nervada",
+2617-                ].includes(tEst)
+2618-              ) {
+2619-                updatedA.anchoCalc = l > 0 ? l.toString() : "";
+2620-                updatedA.longitud = an > 0 ? an.toString() : "";
+2621-              }
+2622-              if (tAcero === "estribos" || tAcero === "zuncho") {
+2623-                updatedA.ganchos = "0";
+2624-                updatedA.traslapes = "0";
+2625-                let perimetro = 0;
+2626-                if (["columna", "dado"].includes(tEst)) {
+2627-                  perimetro = (l + an) * 2;
+2628-                  if (
+2629-                    !updatedA.anchoCalc ||
+2630-                    parseFloat(updatedA.anchoCalc) === parseFloat(s.alto)
+2631-                  )
+2632-                    updatedA.anchoCalc = al > 0 ? al.toString() : "";
+2633-                } else if (tEst === "columna circular" || tEst === "pilas" || tEst === "pila") {
+2634-                  perimetro = l * Math.PI;
+2635-                  if (!updatedA.anchoCalc || parseFloat(updatedA.anchoCalc) === parseFloat(s.alto))
+2636-                    updatedA.anchoCalc = al > 0 ? al.toString() : "";
+2637-                } else if (
+2638-                  ["trabe", "nervadura", "contratrabe"].includes(tEst)
+2639-                ) {
+2640-                  perimetro = (an + al) * 2;
+2641-                  if (
+2642-                    !updatedA.anchoCalc ||
+2643-                    parseFloat(updatedA.anchoCalc) === parseFloat(s.largo)
+2644-                  )
+2645-                    updatedA.anchoCalc = l > 0 ? l.toString() : "";
+2646-                }
+2647-                if (perimetro > 0)
+2648-                  updatedA.longitud = (perimetro - 0.06 + 0.12).toFixed(2);
+2649-              }
+2650-              if (tEst === "muro") {
+2651-                if (tAcero === "vertical") {
+2652-                  updatedA.anchoCalc = l > 0 ? l.toString() : "";
+2653-                  updatedA.longitud = al > 0 ? al.toString() : "";
+2654-                } else if (tAcero === "horizontal") {
+2655-                  updatedA.anchoCalc = al > 0 ? al.toString() : "";
+--
+3042:    return (
+3043-      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
+3044-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1400px] overflow-hidden flex flex-col h-[90vh]">
+3045-          <div className="bg-slate-800 text-white p-6 flex justify-between items-center shrink-0">
+3046-            <div className="flex items-center gap-4">
+3047-              <div className="p-3 bg-slate-700 rounded-xl">
+3048-                <Wrench size={24} className="text-slate-300" />
+3049-              </div>
+3050-              <div>
+3051-                <h3 className="font-black uppercase tracking-widest text-lg flex items-center gap-3">
+3052-                  Despiece de Acero de Refuerzo
+3053-                </h3>
+3054-                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">
+3055-                  {structure.tipo || "Elemento"} • EJE: {structure.eje || "-"} •
+3056-                  CLAVE: {structure.clave || "-"}
+3057-                </p>
+3058-              </div>
+3059-            </div>
+3060-            <button
+3061-              onClick={() => setActiveSteelSubmodal(null)}
+3062-              className="hover:bg-white/20 p-2 rounded-full transition-colors"
+3063-            >
+3064-              <X size={24} />
+3065-            </button>
+3066-          </div>
+3067-          <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
+3068-            <div className="flex-1 p-4 sm:p-6 bg-slate-50 overflow-y-auto border-r border-slate-200">
+3069-              <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm bg-white pb-2">
+3070-                <table className="text-left border-collapse text-[10px] md:text-xs table-fixed w-full">
+3071-                  <thead className="bg-slate-100 text-slate-600 font-black uppercase tracking-tighter md:tracking-wider border-b-2 border-slate-200 leading-tight">
+3072-                    <tr>
+3073-                      <th
+3074-                        className="p-1 md:p-2 text-center border-r select-none"
+3075-                        style={{ width: steelColWidths.no }}
+3076-                      >
+3077-                        No.
+3078-                      </th>
+3079-                      <th
+3080-                        className="p-1 md:p-2 border-r select-none"
+3081-                        style={{ width: steelColWidths.tipo }}
+3082-                      >
+3083-                        Tipo Ref.
+3084-                      </th>
+3085-                      <th
+3086-                        className="p-1 md:p-2 border-r text-center select-none"
+3087-                        style={{ width: steelColWidths.varilla }}
+3088-                      >
+3089-                        # Var.
+3090-                      </th>
+3091-                      <th
+3092-                        className="p-1 md:p-2 border-r text-center bg-indigo-50/50 select-none"
+3093-                        style={{ width: steelColWidths.tramo }}
+3094-                      >
+3095-                        Tramo
+3096-                      </th>
+3097-                      <th
+3098-                        className="p-1 md:p-2 border-r text-center bg-indigo-50/50 select-none"
+3099-                        style={{ width: steelColWidths.separacion }}
+3100-                      >
+3101-                        Sep.
+3102-                      </th>
+3103-                      <th
+3104-                        className="p-1 md:p-2 border-r text-center bg-blue-50/50 select-none"
+3105-                        style={{ width: steelColWidths.piezas }}
+3106-                      >
+3107-                        Pzas
+3108-                      </th>
+3109-                      <th
+3110-                        className="p-1 md:p-2 border-r text-center bg-blue-50/50 select-none"
+3111-                        style={{ width: steelColWidths.longitud }}
+3112-                      >
+3113-                        Long.
+3114-                      </th>
+3115-                      <th
+3116-                        className="p-1 md:p-2 border-r text-center bg-emerald-50/50 select-none"
+3117-                        style={{ width: steelColWidths.ganchos }}
+3118-                      >
+3119-                        Gan.
+3120-                      </th>
+3121-                      <th
+3122-                        className="p-1 md:p-2 border-r text-center bg-emerald-50/50 select-none"
+3123-                        style={{ width: steelColWidths.traslapes }}
+3124-                      >
+3125-                        Tras.
+3126-                      </th>
+3127-                      <th
+3128-                        className="p-1 md:p-2 border-r text-center bg-slate-100 select-none"
+3129-                        style={{ width: steelColWidths.mlPza }}
+3130-                      >
+3131-                        ML/Pza
+3132-                      </th>
+3133-                      <th
+3134-                        className="p-1 md:p-2 border-r text-right bg-slate-200 select-none"
+3135-                        style={{ width: steelColWidths.totalMl }}
+3136-                      >
+3137-                        Tot.(ml)
+3138-                      </th>
+3139-                      <th
+3140-                        className="p-1 md:p-2 border-r text-right bg-slate-300 select-none"
+3141-                        style={{ width: steelColWidths.totalKg }}
+3142-                      >
+3143-                        Tot.(kg)
+3144-                      </th>
+3145-                      <th
+3146-                        className="p-1 md:p-2 text-center select-none"
+3147-                        style={{ width: steelColWidths.action }}
+3148-                      ></th>
+3149-                    </tr>
+3150-                  </thead>
+3151-                  <tbody className="divide-y divide-slate-100">
+3152-                    {aceros.length === 0 && (
+3153-                      <tr>
+3154-                        <td
+3155-                          colSpan={13}
+3156-                          className="p-6 text-center text-slate-400 font-bold uppercase"
+3157-                        >
+--
+3181:                      return (
+3182-                        <tr
+3183-                          key={item.id}
+3184-                          className="hover:bg-slate-50 transition-colors"
+3185-                        >
+3186-                          <td className="p-1 border-r text-center font-black text-slate-400">
+3187-                            {i + 1}
+3188-                          </td>
+3189-                          <td className="p-0 border-r">
+3190-                            <select
+3191-                              className="w-full p-1 bg-transparent outline-none font-bold text-slate-700 uppercase cursor-pointer"
+3192-                              value={item.tipo || ""}
+3193-                              onChange={(ev) =>
+3194-                                updateSteelItem(
+3195-                                  structure.id,
+3196-                                  item.id,
+3197-                                  "tipo",
+3198-                                  ev.target.value,
+3199-                                )
+3200-                              }
+3201-                            >
+3202-                              <option
+3203-                                value=""
+3204-                                disabled
+3205-                                className="text-slate-300"
+3206-                              >
+3207-                                Sel...
+3208-                              </option>
+3209-                              {tiposAceroOpciones.map((t) => (
+3210-                                <option key={t} value={t}>
+3211-                                  {t}
+3212-                                </option>
+3213-                              ))}
+3214-                            </select>
+3215-                          </td>
+3216-                          <td className="p-0 border-r">
+3217-                            <select
+3218-                              className="w-full p-1 bg-transparent outline-none font-black text-slate-800 text-center cursor-pointer"
+3219-                              value={item.numVarilla || "4"}
+3220-                              onChange={(ev) =>
+3221-                                updateSteelItem(
+3222-                                  structure.id,
+3223-                                  item.id,
+3224-                                  "numVarilla",
+3225-                                  ev.target.value,
+3226-                                )
+3227-                              }
+3228-                            >
+3229-                              {Object.keys(PESOS_VARILLA).map((n) => (
+3230-                                <option key={n} value={n}>
+3231-                                  #{n}
+3232-                                </option>
+3233-                              ))}
+3234-                            </select>
+3235-                          </td>
+3236-                          <td className="p-0 border-r bg-indigo-50/30">
+3237-                            {isLongitudinalManual ? (
+3238-                              <div className="text-center font-black text-slate-400 uppercase cursor-not-allowed">
+3239-                                N/A
+3240-                              </div>
+3241-                            ) : (
+3242-                              <DebouncedCell
+3243-                                type="number"
+3244-                                step="0.01"
+3245-                                value={item.anchoCalc}
+3246-                                onChange={(v) =>
+3247-                                  updateSteelItem(
+3248-                                    structure.id,
+3249-                                    item.id,
+3250-                                    "anchoCalc",
+3251-                                    v,
+3252-                                  )
+3253-                                }
+3254-                                onDoubleClick={() =>
+3255-                                  resetSteelFieldToDefault(
+3256-                                    structure.id,
+3257-                                    item.id,
+3258-                                    "anchoCalc",
+3259-                                  )
+3260-                                }
+3261-                                className="w-full p-1 bg-transparent outline-none text-center font-black text-indigo-900"
+3262-                                placeholder="0.00"
+3263-                              />
+3264-                            )}
+3265-                          </td>
+3266-                          <td className="p-0 border-r bg-indigo-50/30">
+3267-                            {isPorPiezas ? (
+3268-                              <div className="text-center font-black text-slate-400 uppercase cursor-not-allowed">
+3269-                                N/A
+3270-                              </div>
+3271-                            ) : (
+3272-                              <DebouncedCell
+3273-                                type="number"
+3274-                                step="0.01"
+3275-                                value={item.separacion}
+3276-                                onChange={(v) =>
+3277-                                  updateSteelItem(
+3278-                                    structure.id,
+3279-                                    item.id,
+3280-                                    "separacion",
+3281-                                    v,
+3282-                                  )
+3283-                                }
+3284-                                className="w-full p-1 bg-transparent outline-none text-center font-black text-indigo-900"
+3285-                                placeholder="-"
+3286-                              />
+3287-                            )}
+3288-                          </td>
+3289-                          <td className="p-0 border-r bg-blue-50/30">
+3290-                            <DebouncedCell
+3291-                              type="number"
+3292-                              min="1"
+3293-                              value={item.piezas}
+3294-                              onChange={(v) =>
+3295-                                updateSteelItem(
+3296-                                  structure.id,
+--
+3531:    return (
+3532-      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-200">
+3533-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col">
+3534-          <div
+3535-            className={`p-4 flex justify-between items-center text-white ${isHueco ? "bg-red-800" : "bg-orange-800"}`}
+3536-          >
+3537-            <h3 className="font-black uppercase tracking-widest text-sm flex items-center gap-3">
+3538-              {isHueco ? "Deducción por Huecos" : "Deducción por Columnas"}{" "}
+3539-              <span className="bg-black/20 px-2 py-1 rounded">
+3540-                Eje {wall.eje || "-"}
+3541-              </span>
+3542-            </h3>
+3543-            <button
+3544-              onClick={() => setActiveWallSubmodal(null)}
+3545-              className="hover:bg-white/20 p-1 rounded transition-colors"
+3546-            >
+3547-              <X size={20} />
+3548-            </button>
+3549-          </div>
+3550-          <div className="p-6 bg-slate-50 flex-1 overflow-auto max-h-[60vh]">
+3551-            <table className="w-full text-left border-collapse text-xs bg-white rounded-lg overflow-hidden shadow-sm">
+3552-              <thead className="bg-slate-200 text-slate-600 font-bold uppercase">
+3553-                <tr>
+3554-                  <th className="p-3 border-b text-center w-12">No.</th>
+3555-                  {isHueco && <th className="p-3 border-b">Tipo</th>}
+3556-                  <th className="p-3 border-b text-center">
+3557-                    {isHueco ? "Largo (m)" : "Ancho (m)"}
+3558-                  </th>
+3559-                  <th className="p-3 border-b text-center">Alto (m)</th>
+3560-                  <th className="p-3 border-b text-center">Pzas</th>
+3561-                  <th className="p-3 border-b text-right bg-slate-300">
+3562-                    Deducción (m2)
+3563-                  </th>
+3564-                  <th className="p-3 border-b text-center w-12"></th>
+3565-                </tr>
+3566-              </thead>
+3567-              <tbody className="divide-y divide-slate-100">
+3568-                {items.length === 0 && (
+3569-                  <tr>
+3570-                    <td
+3571-                      colSpan={7}
+3572-                      className="p-8 text-center text-slate-400 font-bold uppercase tracking-widest"
+3573-                    >
+3574-                      Sin capturas en este rubro
+3575-                    </td>
+3576-                  </tr>
+3577-                )}
+3578-                {items.map((item, i) => {
+3579-                  const ded = isHueco
+3580-                    ? (parseFloat(item.largo) || 0) *
+3581-                      (parseFloat(item.alto) || 0) *
+3582-                      (parseFloat(item.piezas) || 1)
+3583-                    : (parseFloat(item.ancho) || 0) *
+3584-                      (parseFloat(wall.alto) || 0) *
+3585-                      (parseFloat(item.piezas) || 1);
+3586:                  return (
+3587-                    <tr
+3588-                      key={item.id}
+3589-                      className="hover:bg-blue-50 transition-colors"
+3590-                    >
+3591-                      <td className="p-3 border-r text-center font-black text-slate-400">
+3592-                        {i + 1}
+3593-                      </td>
+3594-                      {isHueco && (
+3595-                        <td className="p-1 border-r">
+3596-                          <DebouncedCell
+3597-                            value={item.tipo}
+3598-                            onChange={(v) =>
+3599-                              updateWallSubItem(
+3600-                                wall.id,
+3601-                                activeWallSubmodal.type,
+3602-                                item.id,
+3603-                                "tipo",
+3604-                                v,
+3605-                              )
+3606-                            }
+3607-                            className="w-full p-2 bg-transparent outline-none font-bold text-slate-700 uppercase"
+3608-                            placeholder="Ej. Puerta Principal"
+3609-                          />
+3610-                        </td>
+3611-                      )}
+3612-                      <td className="p-1 border-r">
+3613-                        <DebouncedCell
+3614-                          value={isHueco ? item.largo : item.ancho}
+3615-                          onChange={(v) =>
+3616-                            updateWallSubItem(
+3617-                              wall.id,
+3618-                              activeWallSubmodal.type,
+3619-                              item.id,
+3620-                              isHueco ? "largo" : "ancho",
+3621-                              v,
+3622-                            )
+3623-                          }
+3624-                          className="w-full p-2 bg-transparent outline-none text-center font-bold text-blue-800"
+3625-                          placeholder="0.00"
+3626-                        />
+3627-                      </td>
+3628-                      <td className="p-3 border-r text-center bg-slate-50">
+3629-                        {isHueco ? (
+3630-                          <DebouncedCell
+3631-                            value={item.alto}
+3632-                            onChange={(v) =>
+3633-                              updateWallSubItem(
+3634-                                wall.id,
+3635-                                activeWallSubmodal.type,
+3636-                                item.id,
+3637-                                "alto",
+3638-                                v,
+3639-                              )
+3640-                            }
+3641-                            className="w-full bg-transparent outline-none text-center font-bold text-blue-800"
+3642-                            placeholder="0.00"
+3643-                          />
+3644-                        ) : (
+3645-                          <span
+3646-                            className="font-bold text-slate-500 bg-slate-200 px-3 py-1 rounded cursor-not-allowed"
+3647-                            title="Heredado del Alto de Muro"
+3648-                          >
+3649-                            {parseFloat(wall.alto || 0).toFixed(2)}
+3650-                          </span>
+3651-                        )}
+3652-                      </td>
+3653-                      <td className="p-1 border-r">
+3654-                        <DebouncedCell
+3655-                          value={item.piezas}
+3656-                          onChange={(v) =>
+3657-                            updateWallSubItem(
+3658-                              wall.id,
+3659-                              activeWallSubmodal.type,
+3660-                              item.id,
+3661-                              "piezas",
+3662-                              v,
+3663-                            )
+3664-                          }
+3665-                          className="w-full p-2 bg-transparent outline-none text-center font-black text-lg text-slate-700"
+3666-                          placeholder="1"
+3667-                        />
+3668-                      </td>
+3669-                      <td className="p-3 border-r text-right font-black text-red-600 bg-red-50/50">
+3670-                        {ded.toFixed(2)}
+3671-                      </td>
+3672-                      <td className="p-3 text-center">
+3673-                        <button
+3674-                          onClick={() =>
+3675-                            removeWallSubItem(
+3676-                              wall.id,
+3677-                              activeWallSubmodal.type,
+3678-                              item.id,
+3679-                            )
+3680-                          }
+3681-                          className="text-slate-300 hover:text-red-500 transition-colors"
+3682-                        >
+3683-                          <Trash2 size={18} />
+3684-                        </button>
+3685-                      </td>
+3686-                    </tr>
+3687-                  );
+3688-                })}
+3689-              </tbody>
+3690-            </table>
+3691-            <button
+3692-              onClick={() => addWallSubItem(wall.id, activeWallSubmodal.type)}
+3693-              className="mt-4 px-6 py-3 border-2 border-dashed border-slate-300 text-slate-500 font-black rounded-xl hover:bg-slate-200 text-[10px] uppercase tracking-widest w-full"
+3694-            >
+3695-              + Añadir Fila de Deducción
+3696-            </button>
+3697-          </div>
+3698-          <div className="bg-slate-100 p-5 flex justify-end border-t border-slate-200">
+3699-            <button
+3700-              onClick={() => setActiveWallSubmodal(null)}
+3701-              className="px-8 py-3 bg-slate-800 text-white rounded-xl font-black text-[11px] uppercase tracking-[0.2em] shadow-lg hover:bg-slate-700 hover:scale-95 transition-transform"
+--
+3717:    return (
+3718-      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
+3719-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[80vh]">
+3720-          <div className="bg-sky-800 text-white p-6 flex justify-between items-center shrink-0">
+3721-            <div className="flex items-center gap-4">
+3722-              <div className="p-3 bg-sky-700 rounded-xl">
+3723-                <Box size={24} className="text-sky-200" />
+3724-              </div>
+3725-              <div>
+3726-                <h3 className="font-black uppercase tracking-widest text-lg flex items-center gap-3">
+3727-                  Desglose de Casetones
+3728-                </h3>
+3729-                <p className="text-xs text-sky-300 font-bold uppercase tracking-wider mt-1">
+3730-                  {structure.tipo || "Elemento"} • EJE: {structure.eje || "-"} •
+3731-                  CLAVE: {structure.clave || "-"}
+3732-                </p>
+3733-              </div>
+3734-            </div>
+3735-            <button
+3736-              onClick={() => setActiveCasetonSubmodal(null)}
+3737-              className="hover:bg-white/20 p-2 rounded-full transition-colors"
+3738-            >
+3739-              <X size={24} />
+3740-            </button>
+3741-          </div>
+3742-          <div className="p-6 bg-slate-50 flex-1 overflow-auto">
+3743-            <table className="w-full text-left border-collapse text-xs bg-white rounded-xl overflow-hidden shadow-sm">
+3744-              <thead className="bg-slate-200 text-slate-600 font-bold uppercase tracking-wider">
+3745-                <tr>
+3746-                  <th className="p-3 border-b text-center w-12">No.</th>
+3747-                  <th className="p-3 border-b">Clave</th>
+3748-                  <th className="p-3 border-b text-center">Largo (m)</th>
+3749-                  <th className="p-3 border-b text-center">Ancho (m)</th>
+3750-                  <th className="p-3 border-b text-center">Alto (m)</th>
+3751-                  <th className="p-3 border-b text-center">Pzas</th>
+3752-                  <th className="p-3 border-b text-right bg-slate-300">
+3753-                    Vol. (m3)
+3754-                  </th>
+3755-                  <th className="p-3 border-b text-center w-12"></th>
+3756-                </tr>
+3757-              </thead>
+3758-              <tbody className="divide-y divide-slate-100">
+3759-                {items.length === 0 && (
+3760-                  <tr>
+3761-                    <td
+3762-                      colSpan={8}
+3763-                      className="p-8 text-center text-slate-400 font-bold uppercase tracking-widest"
+3764-                    >
+3765-                      Sin casetones capturados
+3766-                    </td>
+3767-                  </tr>
+3768-                )}
+3769-                {items.map((item, i) => {
+3770-                  const vol =
+3771-                    (parseFloat(item.largo) || 0) *
+3772-                    (parseFloat(item.ancho) || 0) *
+3773-                    (parseFloat(item.alto) || 0) *
+3774-                    (parseFloat(item.piezas) || 1);
+3775:                  return (
+3776-                    <tr
+3777-                      key={item.id}
+3778-                      className="hover:bg-sky-50 transition-colors"
+3779-                    >
+3780-                      <td className="p-3 border-r text-center font-black text-slate-400">
+3781-                        {i + 1}
+3782-                      </td>
+3783-                      <td className="p-1 border-r">
+3784-                        <DebouncedCell
+3785-                          value={item.clave}
+3786-                          onChange={(v) =>
+3787-                            updateCasetonItem(structure.id, item.id, "clave", v)
+3788-                          }
+3789-                          className="w-full p-2 bg-transparent outline-none font-bold text-slate-700 uppercase"
+3790-                          placeholder="Ej. CAS-01"
+3791-                        />
+3792-                      </td>
+3793-                      <td className="p-1 border-r">
+3794-                        <DebouncedCell
+3795-                          type="number"
+3796-                          step="0.01"
+3797-                          value={item.largo}
+3798-                          onChange={(v) =>
+3799-                            updateCasetonItem(structure.id, item.id, "largo", v)
+3800-                          }
+3801-                          className="w-full p-2 bg-transparent outline-none text-center font-bold text-sky-800"
+3802-                          placeholder="0.00"
+3803-                        />
+3804-                      </td>
+3805-                      <td className="p-1 border-r">
+3806-                        <DebouncedCell
+3807-                          type="number"
+3808-                          step="0.01"
+3809-                          value={item.ancho}
+3810-                          onChange={(v) =>
+3811-                            updateCasetonItem(structure.id, item.id, "ancho", v)
+3812-                          }
+3813-                          className="w-full p-2 bg-transparent outline-none text-center font-bold text-sky-800"
+3814-                          placeholder="0.00"
+3815-                        />
+3816-                      </td>
+3817-                      <td className="p-1 border-r">
+3818-                        <DebouncedCell
+3819-                          type="number"
+3820-                          step="0.01"
+3821-                          value={item.alto}
+3822-                          onChange={(v) =>
+3823-                            updateCasetonItem(structure.id, item.id, "alto", v)
+3824-                          }
+3825-                          className="w-full p-2 bg-transparent outline-none text-center font-bold text-sky-800"
+3826-                          placeholder="0.00"
+3827-                        />
+3828-                      </td>
+3829-                      <td className="p-1 border-r">
+3830-                        <DebouncedCell
+3831-                          type="number"
+3832-                          value={item.piezas}
+3833-                          onChange={(v) =>
+3834-                            updateCasetonItem(
+3835-                              structure.id,
+3836-                              item.id,
+3837-                              "piezas",
+3838-                              v,
+3839-                            )
+3840-                          }
+3841-                          className="w-full p-2 bg-transparent outline-none text-center font-black text-lg text-slate-700"
+3842-                          placeholder="1"
+3843-                        />
+3844-                      </td>
+3845-                      <td className="p-3 border-r text-right font-black text-sky-700 bg-sky-50/50">
+3846-                        {(vol * ePiezas).toFixed(2)}
+3847-                      </td>
+3848-                      <td className="p-3 text-center">
+3849-                        <button
+3850-                          onClick={() =>
+3851-                            removeCasetonItem(structure.id, item.id)
+3852-                          }
+3853-                          className="text-slate-300 hover:text-red-500 transition-colors"
+3854-                        >
+3855-                          <Trash2 size={18} />
+3856-                        </button>
+3857-                      </td>
+3858-                    </tr>
+3859-                  );
+3860-                })}
+3861-              </tbody>
+3862-            </table>
+3863-            <button
+3864-              onClick={() => addCasetonItem(structure.id)}
+3865-              className="mt-4 px-6 py-3 border-2 border-dashed border-sky-300 text-sky-600 font-black rounded-xl hover:bg-sky-50 text-[10px] uppercase tracking-widest w-full"
+3866-            >
+3867-              + Añadir Casetón
+3868-            </button>
+3869-          </div>
+3870-          <div className="bg-slate-100 p-5 flex justify-between items-center border-t border-slate-200">
+3871-            <div className="flex items-baseline gap-2">
+3872-              <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">
+3873-                Volumen Total Casetones:
+3874-              </span>{" "}
+3875-              <span className="text-2xl font-black text-sky-800">
+3876-                {getCasetonesTotalVol(items, ePiezas).toFixed(2)}{" "}
+3877-                <span className="text-xs text-sky-600">m3</span>
+3878-              </span>
+3879-            </div>
+3880-            <button
+3881-              onClick={() => setActiveCasetonSubmodal(null)}
+3882-              className="px-8 py-3 bg-sky-800 text-white rounded-xl font-black text-[11px] uppercase tracking-[0.2em] shadow-lg hover:bg-sky-700 hover:scale-95 transition-transform"
+3883-            >
+3884-              Guardar y Cerrar
+3885-            </button>
+3886-          </div>
+3887-        </div>
+3888-      </div>
+3889-    );
+3890-  };
+--
+3900:    return (
+3901-      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4 md:p-8 animate-in fade-in zoom-in-95 duration-200">
+3902-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl flex flex-col h-[70vh] overflow-hidden">
+3903-          <div className="p-6 bg-blue-800 text-white flex justify-between items-center shrink-0">
+3904-            <div>
+3905-              <h3 className="font-black uppercase tracking-widest text-lg">
+3906-                Buscador del Catálogo
+3907-              </h3>
+3908-              <p className="text-xs text-blue-200 mt-1">
+3909-                Selecciona un concepto para auto-rellenar la fila
+3910-              </p>
+3911-            </div>
+3912-            <button
+3913-              onClick={() => setConceptSelectorFor(null)}
+3914-              className="p-2 hover:bg-white/20 rounded-full transition-colors"
+3915-            >
+3916-              <X size={24} />
+3917-            </button>
+3918-          </div>
+3919-          <div className="p-4 bg-slate-50 border-b border-slate-200 shrink-0">
+3920-            <div className="relative">
+3921-              <Search
+3922-                size={18}
+3923-                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+3924-              />
+3925-              <input
+3926-                type="text"
+3927-                placeholder="Buscar por código o descripción..."
+3928-                className="w-full p-3 pl-12 border border-slate-300 rounded-xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-blue-500"
+3929-                value={conceptSearchTerm}
+3930-                onChange={(e) => setConceptSearchTerm(e.target.value)}
+3931-                autoFocus
+3932-              />
+3933-            </div>
+3934-          </div>
+3935-          <div className="flex-1 overflow-auto p-4 bg-slate-50">
+3936-            <table className="w-full text-xs text-left border-collapse bg-white rounded-xl shadow-sm overflow-hidden">
+3937-              <thead className="bg-slate-200 text-slate-600 uppercase font-black">
+3938-                <tr>
+3939-                  <th className="p-3 border-b">Código</th>
+3940-                  <th className="p-3 border-b">Descripción</th>
+3941-                  <th className="p-3 border-b text-center">Unidad</th>
+3942-                </tr>
+3943-              </thead>
+3944-              <tbody className="divide-y divide-slate-100">
+3945-                {filtered.length === 0 && (
+3946-                  <tr>
+3947-                    <td
+3948-                      colSpan={3}
+3949-                      className="p-8 text-center text-slate-400 font-bold uppercase"
+3950-                    >
+3951-                      No se encontraron conceptos
+3952-                    </td>
+3953-                  </tr>
+3954-                )}
+3955-                {filtered.map((cat) => (
+3956-                  <tr
+3957-                    key={cat.id}
+3958-                    onClick={() => {
+3959-                      updateConceptoId(conceptSelectorFor, cat.id);
+3960-                      setConceptSelectorFor(null);
+3961-                    }}
+3962-                    className="hover:bg-blue-50 cursor-pointer transition-colors group"
+3963-                  >
+3964-                    <td className="p-3 font-black text-blue-700 w-[20%]">
+3965-                      {cat.id}
+3966-                    </td>
+3967-                    <td className="p-3 text-slate-600 group-hover:text-blue-900 w-[60%] font-bold uppercase">
+3968-                      {cat.descripcion || "-"}
+3969-                    </td>
+3970-                    <td className="p-3 text-center font-bold text-slate-500 w-[20%] uppercase">
+3971-                      {cat.unidad || "-"}
+3972-                    </td>
+3973-                  </tr>
+3974-                ))}
+3975-              </tbody>
+3976-            </table>
+3977-          </div>
+3978-        </div>
+3979-      </div>
+3980-    );
+3981-  };
+3982-
+3983-  
+3984-
+3985-  const renderGeneratorModal = () => {
+3986-    if (!editingModal) return null;
+3987-    const { concepto, nivel } = editingModal;
+3988-    const currentLevel = generadores[concepto.id]?.[nivel.id] || {
+3989-      rows: [],
+3990-      image: null,
+3991-    };
+3992-    const rows = currentLevel.rows || [];
+3993-
+3994:    return (
+3995-      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
+3996-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1400px] flex flex-col h-[90vh] overflow-hidden">
+3997-          <div className="bg-slate-800 text-white p-6 flex justify-between items-center shrink-0">
+3998-            <div>
+3999-              <h3 className="font-black uppercase tracking-widest text-lg">
+4000-                {concepto.clave} - {concepto.descripcion}
+4001-              </h3>
+4002-              <p className="text-xs text-slate-400 font-bold uppercase mt-1">
+4003-                Generador de volúmenes • Nivel: {nivel.nombre}
+4004-              </p>
+4005-            </div>
+4006-            <button
+4007-              onClick={() => {
+4008-                setEditingModal(null);
+4009-                setSelectedGeneratorRows([]);
+4010-              }}
+4011-              className="p-2 hover:bg-white/20 rounded-full transition-colors"
+4012-            >
+4013-              <X size={24} />
+4014-            </button>
+4015-          </div>
+4016-          <div className="flex flex-col lg:flex-row flex-1 overflow-hidden bg-slate-50">
+4017-            <div className="flex-1 p-4 overflow-y-auto flex flex-col border-r border-slate-200">
+4018-              <div className="flex flex-wrap gap-2 mb-4">
+4019-                <button
+4020-                  onClick={() => {
+4021-                    updateActiveGeneradores((prev) => {
+4022-                      const c = prev[concepto.id] || {};
+4023-                      const n = c[nivel.id] || { rows: [] };
+4024-                      return {
+4025-                        ...prev,
+4026-                        [concepto.id]: {
+4027-                          ...c,
+4028-                          [nivel.id]: {
+4029-                            ...n,
+4030-                            rows: [
+4031-                              ...n.rows,
+4032-                              {
+4033-                                id: `R-${Date.now()}`,
+4034-                                eje: "",
+4035-                                claveLoc: "",
+4036-                                largo: "",
+4037-                                ancho: "",
+4038-                                alto: "",
+4039-                                piezas: "1",
+4040-                              },
+4041-                            ],
+4042-                          },
+4043-                        },
+4044-                      };
+4045-                    });
+4046-                  }}
+4047-                  className="px-4 py-2 bg-blue-600 text-white font-black text-[10px] rounded-lg shadow-sm hover:bg-blue-500 uppercase flex items-center gap-2"
+4048-                >
+4049-                  <Plus size={14} /> Fila
+4050-                </button>
+4051-                <button
+4052-                  onClick={handleCopyRows}
+4053-                  className="px-4 py-2 bg-slate-200 text-slate-700 font-black text-[10px] rounded-lg hover:bg-slate-300 uppercase flex items-center gap-2"
+4054-                >
+4055-                  <Copy size={14} /> Copiar{" "}
+4056-                  {selectedGeneratorRows.length > 0
+4057-                    ? `(${selectedGeneratorRows.length})`
+4058-                    : "Todas"}
+4059-                </button>
+4060-                <button
+4061-                  onClick={handlePasteRows}
+4062-                  disabled={!clipboardRows || clipboardRows.length === 0}
+4063-                  className="px-4 py-2 bg-emerald-100 text-emerald-700 font-black text-[10px] rounded-lg hover:bg-emerald-200 uppercase flex items-center gap-2 disabled:opacity-50"
+4064-                >
+4065-                  <ClipboardPaste size={14} /> Pegar
+4066-                </button>
+4067-                {selectedGeneratorRows.length > 0 && (
+4068-                  <button
+4069-                    onClick={() => {
+4070-                      updateActiveGeneradores((prev) => {
+4071-                        const c = prev[concepto.id] || {};
+4072-                        const n = c[nivel.id];
+4073-                        if (!n) return prev;
+4074-                        return {
+4075-                          ...prev,
+4076-                          [concepto.id]: {
+4077-                            ...c,
+4078-                            [nivel.id]: {
+4079-                              ...n,
+4080-                              rows: n.rows.filter(
+4081-                                (r) => !selectedGeneratorRows.includes(r.id),
+4082-                              ),
+4083-                            },
+4084-                          },
+4085-                        };
+4086-                      });
+4087-                      setSelectedGeneratorRows([]);
+4088-                    }}
+4089-                    className="px-4 py-2 bg-red-100 text-red-700 font-black text-[10px] rounded-lg hover:bg-red-200 uppercase flex items-center gap-2"
+4090-                  >
+4091-                    <Trash2 size={14} /> Borrar ({selectedGeneratorRows.length})
+4092-                  </button>
+4093-                )}
+4094-              </div>
+4095-              <div className="overflow-x-auto bg-white rounded-xl shadow-sm border border-slate-200">
+4096-                <table className="w-full text-left border-collapse text-[10px] md:text-xs">
+4097-                  <thead className="bg-slate-100 text-slate-500 font-black uppercase border-b-2 border-slate-200 tracking-wider">
+4098-                    <tr>
+4099-                      <th
+4100-                        className="p-2 text-center border-r"
+4101-                        style={{ width: genColWidths.select }}
+4102-                      >
+4103-                        <button onClick={toggleAllGeneratorRows}>
+4104-                          {rows.length > 0 &&
+4105-                          selectedGeneratorRows.length === rows.length ? (
+4106-                            <CheckSquare size={14} />
+4107-                          ) : (
+4108-                            <Square size={14} />
+4109-                          )}
+--
+4277:    return (
+4278-      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
+4279-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl flex flex-col h-[90vh] overflow-hidden">
+4280-          <div className="bg-blue-800 text-white p-6 flex justify-between items-center shrink-0">
+4281-            <div className="flex items-center gap-4">
+4282-              <div className="p-3 bg-blue-700 rounded-xl">
+4283-                <FileSpreadsheet size={24} className="text-blue-200" />
+4284-              </div>
+4285-              <div>
+4286-                <h3 className="font-black uppercase tracking-widest text-lg">
+4287-                  Cédula de Cuantificación (Generador)
+4288-                </h3>
+4289-                <p className="text-xs text-blue-300 font-bold uppercase mt-1">
+4290-                  Reporte Detallado de Nivel: {n.nombre}
+4291-                </p>
+4292-              </div>
+4293-            </div>
+4294-            <button
+4295-              onClick={() => setActiveLevelReport(null)}
+4296-              className="p-2 hover:bg-white/20 rounded-full transition-colors"
+4297-            >
+4298-              <X size={24} />
+4299-            </button>
+4300-          </div>
+4301-          <div className="p-6 bg-slate-100 flex-1 overflow-auto">
+4302-            {conceptosConDatos.length === 0 && (
+4303-              <div className="p-8 text-center text-slate-400 font-bold uppercase">
+4304-                No hay conceptos con generadores en este nivel
+4305-              </div>
+4306-            )}
+4307-            {conceptosConDatos.map((c) => {
+4308-              const dataNivel = generadores[c.id]?.[n.id] || { rows: [] };
+4309-              const rows = dataNivel.rows || [];
+4310-              const croquis = dataNivel.image;
+4311-              const totalVol = getVolumenNivel(c.id, n.id);
+4312-
+4313:              return (
+4314-                <div
+4315-                  key={c.id}
+4316-                  className="mb-8 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden break-inside-avoid"
+4317-                >
+4318-                  <div className="bg-slate-800 text-white p-6 relative rounded-t-xl overflow-hidden shadow-inner">
+4319-                    <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
+4320-                      <div className="flex flex-col items-center md:items-start bg-slate-700/30 p-3 rounded-2xl border border-slate-700/50 min-w-[120px]">
+4321-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.25em] mb-1">Concepto</span>
+4322-                        <h4 className="font-black text-sm tracking-wider text-blue-400">{c.clave || c.id}</h4>
+4323-                      </div>
+4324-                      <div className="flex-1 flex items-center justify-center py-2 px-4">
+4325-                        <p className="text-[11px] md:text-[12px] leading-tight text-white font-black uppercase text-center max-w-2xl drop-shadow-sm">
+4326-                          {c.descripcion}
+4327-                        </p>
+4328-                      </div>
+4329-                      <div className="flex flex-col items-center md:items-end bg-slate-700/30 p-3 rounded-2xl border border-slate-700/50 min-w-[120px]">
+4330-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.25em] mb-1">Unidad</span>
+4331-                        <span className="font-black text-lg text-blue-400 leading-none">{c.unidad}</span>
+4332-                      </div>
+4333-                    </div>
+4334-                  </div>
+4335-                  <div className="flex flex-col border border-slate-200 rounded-b-xl border-t-0">
+4336-                    <div className="w-full p-0">
+4337-                      <table className="w-full text-left border-collapse text-[12px]">
+4338-                        <thead className="bg-slate-50 text-slate-500 uppercase font-black text-[12px]">
+4339-                          <tr>
+4340-                            <th className="p-2 border-b border-r border-slate-200">
+4341-                              Localización
+4342-                            </th>
+4343-                            <th className="p-2 border-b border-r border-slate-200 text-center">
+4344-                              Largo
+4345-                            </th>
+4346-                            <th className="p-2 border-b border-r border-slate-200 text-center">
+4347-                              Ancho
+4348-                            </th>
+4349-                            <th className="p-2 border-b border-r border-slate-200 text-center">
+4350-                              Kg/ml
+4351-                            </th>
+4352-                            <th className="p-2 border-b border-r border-slate-200 text-center">
+4353-                              Alto
+4354-                            </th>
+4355-                            <th className="p-2 border-b border-r border-slate-200 text-center">
+4356-                              Vol/Pza
+4357-                            </th>
+4358-                            <th className="p-2 border-b border-r border-slate-200 text-center">
+4359-                              Pzas
+4360-                            </th>
+4361-                            <th className="p-2 border-b border-slate-200 text-right text-blue-700">
+4362-                              VolumetTot
+4363-                            </th>
+4364-                          </tr>
+4365-                        </thead>
+4366-                        <tbody className="divide-y divide-slate-100 text-[12px]">
+4367-                          {rows.length === 0 && (
+4368-                            <tr>
+4369-                              <td
+4370-                                colSpan={8}
+4371-                                className="p-3 text-center text-slate-400"
+4372-                              >
+4373-                                Sin filas
+4374-                              </td>
+4375-                            </tr>
+4376-                          )}
+4377-                          {rows.map((r) => {
+4378-                            const l = parseFloat(r.largo); const lAbs = isNaN(l) || l === 0 ? 0 : Math.abs(l);
+4379-                            const a = parseFloat(r.ancho); const aAbs = isNaN(a) || a === 0 ? 0 : Math.abs(a);
+4380-                            const h = parseFloat(r.alto); const hAbs = isNaN(h) || h === 0 ? 0 : Math.abs(h);
+4381-                            const k = parseFloat(r.kg_ml); const kAbs = isNaN(k) || k === 0 ? 0 : Math.abs(k);
+4382-                            const isActuallyZero = lAbs === 0 && aAbs === 0 && hAbs === 0 && kAbs === 0;
+4383-                            const volPza = isActuallyZero ? 0 : ((lAbs > 0 ? lAbs : 1) * (aAbs > 0 ? aAbs : 1) * (hAbs > 0 ? hAbs : 1) * (kAbs > 0 ? kAbs : 1));
+4384:                            return (
+4385-                            <tr key={r.id} className="hover:bg-slate-50">
+4386-                              <td className="p-2 border-r border-slate-100 font-bold uppercase">
+4387-                                {r.eje} {r.claveLoc}
+4388-                              </td>
+4389-                              <td className="p-2 border-r border-slate-100 text-center">
+4390-                                {r.largo
+4391-                                  ? parseFloat(r.largo).toFixed(2)
+4392-                                  : "0.00"}
+4393-                              </td>
+4394-                              <td className="p-2 border-r border-slate-100 text-center">
+4395-                                {r.ancho
+4396-                                  ? parseFloat(r.ancho).toFixed(2)
+4397-                                  : "0.00"}
+4398-                              </td>
+4399-                              <td className="p-2 border-r border-slate-100 text-center">
+4400-                                {r.kg_ml
+4401-                                  ? parseFloat(r.kg_ml).toFixed(2)
+4402-                                  : "0.00"}
+4403-                              </td>
+4404-                              <td className="p-2 border-r border-slate-100 text-center">
+4405-                                {r.alto
+4406-                                  ? parseFloat(r.alto).toFixed(2)
+4407-                                  : "0.00"}
+4408-                              </td>
+4409-                              <td className="p-2 border-r border-slate-100 text-center">
+4410-                                {volPza.toFixed(2)}
+4411-                              </td>
+4412-                              <td className="p-2 border-r border-slate-100 text-center font-bold">
+4413-                                {r.piezas
+4414-                                  ? parseFloat(r.piezas).toFixed(2)
+4415-                                  : "1.00"}
+4416-                              </td>
+4417-                              <td className="p-2 text-right font-black text-slate-700">
+4418-                                {calculateVolumeRow(r).toFixed(2)}
+4419-                              </td>
+4420-                            </tr>
+4421-                            );
+4422-                          })}
+4423-                        </tbody>
+4424-                        <tfoot className="bg-blue-50/50">
+4425-                          <tr>
+4426-                            <td
+4427-                              colSpan={7}
+4428-                              className="p-3 text-right font-black uppercase tracking-widest text-slate-600 border-t border-blue-100 text-[13.5px]"
+4429-                            >
+4430-                              Total Concepto:
+4431-                            </td>
+4432-                            <td className="p-3 text-right font-black text-blue-800 text-[15px] border-t border-blue-100">
+4433-                              {totalVol.toFixed(2)}
+4434-                            </td>
+4435-                          </tr>
+4436-                        </tfoot>
+4437-                      </table>
+4438-                    </div>
+4439-                    {croquis && (
+4440-                      <div className="w-full bg-slate-50 border-t border-slate-200 p-4 flex flex-col">
+4441-                        <span className="text-[12px] font-black uppercase tracking-widest text-slate-400 mb-2 text-center border-b border-slate-200 pb-1">
+4442-                          Croquis de Referencia
+4443-                        </span>
+4444-                        <div className="w-full flex items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl overflow-hidden p-2">
+4445-                          <img
+4446-                            src={croquis}
+4447-                            alt="Croquis"
+4448-                            className="w-full h-auto object-contain max-h-[300px]"
+4449-                          />
+4450-                        </div>
+4451-                      </div>
+4452-                    )}
+4453-                  </div>
+4454-                </div>
+4455-              );
+4456-            })}
+4457-          </div>
+4458-          <div className="bg-slate-100 p-5 flex justify-end border-t border-slate-200 shadow-inner z-10">
+4459-            <button
+4460-              onClick={() => {
+4461-                let html = ``;
+4462-                let isFirstTable = true;
+4463-                conceptosConDatos.forEach((c) => {
+4464-                  const rows = generadores[c.id]?.[n.id]?.rows || [];
+4465-                  const total = getVolumenNivel(c.id, n.id);
+4466-                  const cLabel = c.clave || c.id;
+4467-                  const desc = (c.descripcion || "").replace(/\\n/g, " ");
+4468-
+4469-                  const renderExVal = (v) => {
+4470-                    const num = parseFloat(v);
+4471-                    if (isNaN(num) || num === 0) return "-  ";
+4472-                    return num.toFixed(2);
+4473-                  };
+4474-
+4475-                  html += `
+4476-                   <table style="border-collapse: collapse; margin-bottom: 30px; font-family: Arial, sans-serif; font-size: 10pt;">
+4477-                      <colgroup>
+4478-                         <col width="20" />
+4479-                         <col width="145" />
+4480-                         <col width="145" />
+4481-                         <col width="145" />
+4482-                         <col width="145" />
+4483-                         <col width="145" />
+4484-                         <col width="145" />
+4485-                         <col width="145" />
+4486-                         <col width="145" />
+4487-                      </colgroup>
+4488-                      <thead>`;
+4489-                  
+4490-                  if (isFirstTable) {
+4491-                    html += `
+4492-                         <tr><td colspan="9" style="height: 10px; border: none;"></td></tr>
+4493-                         <tr>
+4494-                            <td style="border: none;"></td>
+4495-                            <td colspan="8" style="background-color: #203764; color: #ffffff; font-size: 14pt; font-weight: bold; text-align: center; padding: 6px; border: none;">
+4496-                               CÉDULA DE CUANTIFICACIÓN (GENERADOR) - NIVEL: ${n.nombre.toUpperCase()}
+4497-                            </td>
+4498-                         </tr>`;
+4499-                    isFirstTable = false;
+--
+4637:    return (
+4638-      <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
+4639-        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1400px] flex flex-col h-[90vh] overflow-hidden">
+4640-          <div className="bg-slate-800 text-white p-6 flex justify-between items-center shrink-0">
+4641-            <div className="flex items-center gap-4">
+4642-              <div className="p-3 bg-slate-700 rounded-xl">
+4643-                <Printer size={24} className="text-slate-200" />
+4644-              </div>
+4645-              <div>
+4646-                <h3 className="font-black uppercase tracking-widest text-lg">
+4647-                  Reporte Global de Acero (Desglose por Elemento)
+4648-                </h3>
+4649-                <p className="text-xs text-slate-400 font-bold uppercase mt-1">
+4650-                  Análisis detallado de varilla y refuerzos
+4651-                </p>
+4652-              </div>
+4653-            </div>
+4654-            <div className="flex items-center gap-4">
+4655-              <select
+4656-                value={globalReportLevel}
+4657-                onChange={(e) => setGlobalReportLevel(e.target.value)}
+4658-                className="bg-slate-700 text-white text-xs font-bold uppercase p-2 rounded-lg outline-none border border-slate-600"
+4659-              >
+4660-                <option value="todos">Todos los Niveles</option>
+4661-                {niveles.map((n) => (
+4662-                  <option key={n.id} value={n.id}>
+4663-                    {n.nombre}
+4664-                  </option>
+4665-                ))}
+4666-              </select>
+4667-              <button
+4668-                onClick={() => {
+4669-                  let titleLevelName =
+4670-                    globalReportLevel === "todos"
+4671-                      ? "TODOS LOS NIVELES"
+4672-                      : niveles.find((n) => n.id === globalReportLevel)
+4673-                          ?.nombre || "";
+4674-
+4675-                  const renderExVal = (v) => {
+4676-                    const num = parseFloat(v);
+4677-                    if (isNaN(num) || num === 0) return "-";
+4678-                    return num.toFixed(2);
+4679-                  };
+4680-
+4681-                  let html = `<table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">
+4682-                      <colgroup>
+4683-                         <col width="30" />
+4684-                         <col width="70" />
+4685-                         <col width="160" />
+4686-                         <col width="120" />
+4687-                         <col width="50" />
+4688-                         <col width="100" />
+4689-                         <col width="60" />
+4690-                         <col width="60" />
+4691-                         <col width="50" />
+4692-                         <col width="70" />
+4693-                         <col width="60" />
+4694-                         <col width="50" />
+4695-                         <col width="50" />
+4696-                         <col width="60" />
+4697-                         <col width="70" />
+4698-                         <col width="70" />
+4699-                         <col width="110" />
+4700-                      </colgroup>
+4701-                      <thead>
+4702-                      <tr style="height: 15pt;">
+4703-                         <td style="border: none; background-color: #ffffff;"></td>
+4704-                         <th colspan="16" style="background-color: #0b1a30; color: #ffffff; font-size: 12pt; font-weight: bold; text-align: center; vertical-align: middle; border: 1px solid #000000; text-transform: uppercase;">
+4705-                            REPORTE GLOBAL DE ACERO (DESGLOSE POR ELEMENTO) - NIVEL: ${titleLevelName}
+4706-                         </th>
+4707-                      </tr>
+4708-                      <tr style="height: 15pt;">
+4709-                         <td colspan="17" style="border: none; background-color: #ffffff;"></td>
+4710-                      </tr>
+4711-                      <tr style="background-color: #e2e8f0; color: #000000; font-size: 8pt; font-weight: bold; text-align: center; height: 15pt;">
+4712-                         <td style="border: none; background-color: #ffffff;"></td>
+4713-                         <th style="border: 1px solid #000000; vertical-align: middle;">NIVEL</th>
+4714-                         <th style="border: 1px solid #000000; vertical-align: middle;">UBICACIÓN (EJE / CLAVE)</th>
+4715-                         <th style="border: 1px solid #000000; vertical-align: middle;">ELEMENTO</th>
+4716-                         <th style="border: 1px solid #000000; vertical-align: middle;">PZAS</th>
+4717-                         <th style="border: 1px solid #000000; vertical-align: middle;">TIPO REF.</th>
+4718-                         <th style="border: 1px solid #000000; vertical-align: middle;"># VAR</th>
+4719-                         <th style="border: 1px solid #000000; vertical-align: middle;">TRAMO</th>
+4720-                         <th style="border: 1px solid #000000; vertical-align: middle;">SEP.</th>
+4721-                         <th style="border: 1px solid #000000; vertical-align: middle;">PZAS REF.</th>
+4722-                         <th style="border: 1px solid #000000; vertical-align: middle;">LONG.</th>
+4723-                         <th style="border: 1px solid #000000; vertical-align: middle;">GAN.</th>
+4724-                         <th style="border: 1px solid #000000; vertical-align: middle;">TRAS.</th>
+4725-                         <th style="border: 1px solid #000000; vertical-align: middle;">ML/PZA</th>
+4726-                         <th style="border: 1px solid #000000; color: #0070c0; vertical-align: middle;">TOT.(ML)</th>
+4727-                         <th style="border: 1px solid #000000; color: #002060; vertical-align: middle;">TOT.(KG)</th>
+4728-                         <th style="border: 1px solid #000000; color: #002060; vertical-align: middle;">TOTAL ELEM.(KG)</th>
+4729-                      </tr>
+4730-                   </thead><tbody>`;
+4731-
+4732-                  estructurasConAcero.forEach((e) => {
+4733-                    const ePiezas = parseFloat(e.piezas) || 1;
+4734-                    const elemTotalKg = calcAceroTotalKg(e.aceros, e.piezas);
+4735-                    const tipoRowSpan =
+4736-                      e.aceros.length > 0 ? e.aceros.length : 1;
+4737-
+4738-                    if (e.aceros.length === 0) {
+4739-                      html += `<tr style="background-color: #ffffff; text-align: center; height: 15pt;">
+4740-                            <td style="border: none; background-color: #ffffff;"></td>
+4741-                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e._nivelInfo}</td>
+4742-                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; text-transform: uppercase; vertical-align: middle; text-align: center;">${e.eje} ${e.clave}</td>
+4743-                            <td style="border: 1px solid #000000; font-size: 8pt; color: #595959; text-transform: uppercase; vertical-align: middle; text-align: center;">${e.tipo}</td>
+4744-                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #1d4ed8; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${ePiezas.toFixed(2)}</td>
+4745-                            <td colspan="11" style="border: 1px solid #000000; font-size: 8pt; color: #808080; vertical-align: middle; text-align: center;">Sin acero</td>
+4746-                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #1d4ed8; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${elemTotalKg.toFixed(2)}</td>
+4747-                         </tr>`;
+4748-                    } else {
+4749-                      e.aceros.forEach((a, idx) => {
+4750-                        const calc = calcAceroItem(a);
+4751-                        const kgTotal =
+4752-                          Math.round(calc.kg * ePiezas * 100) / 100;
+--
+4974:                    return (
+4975-                      <tr
+4976-                        key={i}
+4977-                        className="hover:bg-white transition-colors bg-slate-50/30"
+4978-                      >
+4979-                        <td className="p-3 border-r border-slate-200 font-bold text-slate-600">
+4980-                          {e._nivelInfo}
+4981-                        </td>
+4982-                        <td className="p-3 border-r border-slate-200 font-black uppercase text-slate-800">
+4983-                          {e.eje} {e.clave}
+4984-                        </td>
+4985-                        <td className="p-3 border-r border-slate-200 uppercase text-[10px] text-slate-600 font-bold">
+4986-                          {e.tipo} <br />
+4987-                          <span className="text-[8px] text-slate-400">
+4988-                            ({e.largo} x {e.ancho} x {e.alto})
+4989-                          </span>
+4990-                        </td>
+4991-                        <td className="p-3 border-r border-slate-200 text-center font-black text-indigo-700 bg-indigo-50/30 text-sm">
+4992-                          {ePiezas}
+4993-                        </td>
+4994-                        <td className="p-0 border-r border-slate-200">
+4995-                          <table className="w-full text-[10px]">
+4996-                            <tbody className="divide-y divide-slate-100">
+4997-                              {e.aceros.map((a, j) => {
+4998-                                const calc = calcAceroItem(a);
+4999-                                const kgTotal =
+5000-                                  Math.round(calc.kg * ePiezas * 100) / 100;
+5001:                                return (
+5002-                                  <tr key={j} className="hover:bg-blue-50/50">
+5003-                                    <td className="w-[11%] p-2 text-center border-r border-slate-100 font-bold text-slate-600 uppercase">
+5004-                                      {a.tipo}
+5005-                                    </td>
+5006-                                    <td className="w-[7%] p-2 text-center border-r border-slate-100 font-black text-slate-800">
+5007-                                      #{a.numVarilla}
+5008-                                    </td>
+5009-                                    <td className="w-[9%] p-2 text-center border-r border-slate-100 font-bold text-indigo-900">
+5010-                                      {a.anchoCalc || "-"}
+5011-                                    </td>
+5012-                                    <td className="w-[9%] p-2 text-center border-r border-slate-100 font-bold text-indigo-900">
+5013-                                      {a.separacion || "-"}
+5014-                                    </td>
+5015-                                    <td className="w-[9%] p-2 text-center border-r border-slate-100 font-black text-blue-900">
+5016-                                      {a.piezas || "1"}
+5017-                                    </td>
+5018-                                    <td className="w-[9%] p-2 text-center border-r border-slate-100 font-black text-blue-800">
+5019-                                      {parseFloat(a.longitud || 0).toFixed(2)}
+5020-                                    </td>
+5021-                                    <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-emerald-800">
+5022-                                      {a.ganchos || "0"}
+5023-                                    </td>
+5024-                                    <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-emerald-800">
+5025-                                      {parseFloat(a.traslapes || 0).toFixed(2)}
+5026-                                    </td>
+5027-                                    <td className="w-[10%] p-2 text-center border-r border-slate-100 font-black text-slate-500">
+5028-                                      {calc.mlPorPieza.toFixed(2)}
+5029-                                    </td>
+5030-                                    <td className="w-[10%] p-2 text-right border-r border-slate-100 font-black text-slate-600">
+5031-                                      {(calc.ml * ePiezas).toFixed(2)}
+5032-                                    </td>
+5033-                                    <td className="w-[10%] p-2 text-right font-black text-blue-700">
+5034-                                      {kgTotal.toFixed(2)}
+5035-                                    </td>
+5036-                                  </tr>
+5037-                                );
+5038-                              })}
+5039-                            </tbody>
+5040-                          </table>
+5041-                        </td>
+5042-                      </tr>
+5043-                    );
+5044-                  })}
+5045-                </tbody>
+5046-              </table>
+5047-            </div>
+5048-
+5049-            <div className="w-full bg-white border-t border-slate-200 p-6 shadow-md z-20 flex flex-col xl:flex-row gap-8 shrink-0">
+5050-              <div className="flex-1 flex flex-col md:flex-row gap-6 border-r border-slate-100 pr-4">
+5051-                <div className="flex-1">
+5052-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-teal-600 mb-3 border-b border-teal-100 pb-1">
+5053-                    Cimentación
+5054-                  </h4>
+5055-                  <div className="grid grid-cols-2 gap-2">
+5056-                    {Object.keys(resumenCimentacion).length === 0 && (
+5057-                      <span className="text-[9px] text-slate-400 font-bold uppercase">
+5058-                        Sin datos
+5059-                      </span>
+5060-                    )}
+5061-                    {Object.entries(resumenCimentacion)
+5062-                      .sort((a, b) => Number(a[0]) - Number(b[0]))
+5063-                      .map(([num, kg]) => (
+5064-                        <div
+5065-                          key={num}
+5066-                          className="bg-teal-50/50 border border-teal-100 rounded-lg p-2"
+5067-                        >
+5068-                          <span className="block text-[8px] font-black text-teal-500 uppercase">
+5069-                            Varilla #{num}
+5070-                          </span>
+5071-                          <span className="font-black text-teal-700 text-sm">
+5072-                            {kg.toLocaleString(undefined, {
+5073-                              minimumFractionDigits: 2,
+5074-                            })}{" "}
+5075-                            <span className="text-[8px]">kg</span>
+5076-                          </span>
+5077-                        </div>
+5078-                      ))}
+5079-                  </div>
+5080-                </div>
+5081-
+5082-                <div className="flex-1">
+5083-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600 mb-3 border-b border-blue-100 pb-1">
+5084-                    Estructura
+5085-                  </h4>
+5086-                  <div className="grid grid-cols-2 gap-2">
+5087-                    {Object.keys(resumenEstructura).length === 0 && (
+5088-                      <span className="text-[9px] text-slate-400 font-bold uppercase">
+5089-                        Sin datos
+5090-                      </span>
+5091-                    )}
+5092-                    {Object.entries(resumenEstructura)
+5093-                      .sort((a, b) => Number(a[0]) - Number(b[0]))
+5094-                      .map(([num, kg]) => (
+5095-                        <div
+5096-                          key={num}
+5097-                          className="bg-blue-50/50 border border-blue-100 rounded-lg p-2"
+5098-                        >
+5099-                          <span className="block text-[8px] font-black text-blue-500 uppercase">
+5100-                            Varilla #{num}
+5101-                          </span>
+5102-                          <span className="font-black text-blue-700 text-sm">
+5103-                            {kg.toLocaleString(undefined, {
+5104-                              minimumFractionDigits: 2,
+5105-                            })}{" "}
+5106-                            <span className="text-[8px]">kg</span>
+5107-                          </span>
+5108-                        </div>
+5109-                      ))}
+5110-                  </div>
+5111-                </div>
+5112-
+5113-                <div className="flex-1">
+5114-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-indigo-600 mb-3 border-b border-indigo-100 pb-1">
+5115-                    Muros
+5116-                  </h4>
+--
+5224:    return (
+5225-      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 animate-in fade-in zoom-in-95 duration-300 flex flex-col min-h-[600px]">
+5226-        <div className="bg-red-800 text-white p-4 flex justify-between items-center shrink-0 rounded-t-3xl">
+5227-          <div className="flex items-center gap-3">
+5228-            <div className="p-2 bg-red-700/50 rounded-lg border border-red-600/50">
+5229-              <Wrench size={20} className="text-red-200" />
+5230-            </div>
+5231-            <div>
+5232-              <h2 className="text-lg font-black uppercase tracking-wider leading-tight">Estructura Metálica</h2>
+5233-              <p className="text-[9px] text-red-300 font-bold uppercase tracking-widest">{activePartida.nombre}</p>
+5234-            </div>
+5235-          </div>
+5236-          <div className="flex items-center gap-3">
+5237-            <select
+5238-              value={activeLevelId}
+5239-              onChange={(e) => {
+5240-                setActiveLevelId(e.target.value);
+5241-                setSelectedMetalRows([]);
+5242-              }}
+5243-              className="bg-[#450a0a] text-white font-black text-[10px] uppercase p-2 px-4 rounded-lg border border-red-600 outline-none cursor-pointer"
+5244-            >
+5245-              {niveles.map(n => <option key={n.id} value={n.id} className="text-slate-800">{n.nombre}</option>)}
+5246-            </select>
+5247-            <button onClick={() => setShowMetalStructureGenerator(false)} className="p-1.5 bg-red-700 hover:bg-red-600 rounded-full transition-colors"><X size={20} /></button>
+5248-          </div>
+5249-        </div>
+5250-
+5251-        <div className="flex flex-1 overflow-hidden">
+5252-          <div className="w-48 bg-slate-50 border-r border-slate-200 p-2 flex flex-col gap-2 shrink-0">
+5253-             <button
+5254-                onClick={() => setActiveMetalSubmodal("Polín Monten")}
+5255-                className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Polín Monten" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+5256-              >
+5257-                Polín Monten
+5258-             </button>
+5259-          </div>
+5260-
+5261-          <div className="flex-1 flex flex-col relative overflow-hidden bg-white rounded-br-3xl">
+5262-            <div className="overflow-x-auto flex-1 p-4">
+5263-              <table className="text-xs text-left border-collapse w-full">
+5264-                <thead className="bg-slate-100 text-slate-700 uppercase tracking-wider select-none sticky top-0 z-10 font-black">
+5265-                  <tr>
+5266-                    <th className="p-2 border border-slate-200 text-center w-[40px]">No.</th>
+5267-                    <th className="p-2 border border-slate-200 text-center">Eje</th>
+5268-                    <th className="p-2 border border-slate-200 text-center">Clave</th>
+5269-                    <th className="p-2 border border-slate-200 text-center">Largo (m)</th>
+5270-                    <th className="p-2 border border-slate-200 text-center">Medida Nominal</th>
+5271-                    <th className="p-2 border border-slate-200 text-center">Dimensiones</th>
+5272-                    <th className="p-2 border border-slate-200 text-center">Calibre</th>
+5273-                    <th className="p-2 border border-slate-200 text-center">Peso/ml</th>
+5274-                    <th className="p-2 border border-slate-200 text-center bg-blue-50 text-blue-900">Peso Total (kg)</th>
+5275-                    <th className="p-2 border border-slate-200 text-center"></th>
+5276-                  </tr>
+5277-                </thead>
+5278-                <tbody>
+5279-                   {metalRows.map((row, idx) => {
+5280-                     const pd = POLIN_DATA[row.medidaNominal] || { dim: "-", pesos: {} };
+5281-                     const pesoMl = pd.pesos[row.calibre] || 0;
+5282-                     const totalKg = (parseFloat(row.largo) || 0) * pesoMl;
+5283-
+5284:                     return (
+5285-                      <tr key={row.id} className="hover:bg-slate-50 transition-colors group">
+5286-                        <td className="p-2 border border-slate-200 text-center text-[10px] text-slate-400 font-bold">{idx + 1}</td>
+5287-                        <td className="p-0 border border-slate-200"><input type="text" className="w-full text-center p-2 bg-transparent outline-none uppercase font-bold" value={row.eje || ""} onChange={(e) => updateMetalRow(idx, "eje", e.target.value)} /></td>
+5288-                        <td className="p-0 border border-slate-200"><input type="text" className="w-full text-center p-2 bg-transparent outline-none uppercase font-bold" value={row.clave || ""} onChange={(e) => updateMetalRow(idx, "clave", e.target.value)} /></td>
+5289-                        <td className="p-0 border border-slate-200"><input type="number" className="w-full text-center p-2 bg-transparent outline-none font-bold" value={row.largo || ""} onChange={(e) => updateMetalRow(idx, "largo", e.target.value)} /></td>
+5290-                        <td className="p-1 border border-slate-200 text-center">
+5291-                           <select className="w-full text-center p-1 bg-transparent outline-none font-bold cursor-pointer" value={row.medidaNominal} onChange={(e) => {
+5292-                               const newMedida = e.target.value;
+5293-                               const newPd = POLIN_DATA[newMedida];
+5294-                               let newCalibre = row.calibre;
+5295-                               if (newPd && newPd.pesos[newCalibre] === undefined) {
+5296-                                  newCalibre = Object.keys(newPd.pesos).find(k => newPd.pesos[k] !== undefined && newPd.pesos[k] !== null) || '14';
+5297-                               }
+5298-                               updateMetalRow(idx, { medidaNominal: newMedida, calibre: newCalibre });
+5299-                           }}>
+5300-                              {Object.keys(POLIN_DATA).map(m => (
+5301-                                 <option key={m} value={m}>{m}</option>
+5302-                              ))}
+5303-                           </select>
+5304-                        </td>
+5305-                        <td className="p-2 border border-slate-200 text-center font-bold text-slate-500 whitespace-nowrap">{pd.dim}</td>
+5306-                        <td className="p-1 border border-slate-200 text-center">
+5307-                           <select className="w-full text-center p-1 bg-transparent outline-none font-bold cursor-pointer" value={row.calibre} onChange={(e) => updateMetalRow(idx, "calibre", e.target.value)}>
+5308-                              {Object.keys(pd.pesos).filter(k => pd.pesos[k] !== null).map(c => (
+5309-                                <option key={c} value={c}>{c}</option>
+5310-                              ))}
+5311-                           </select>
+5312-                        </td>
+5313-                        <td className="p-2 border border-slate-200 text-center font-black text-blue-600">{pesoMl > 0 ? pesoMl.toFixed(2) : "-"}</td>
+5314-                        <td className="p-2 border border-slate-200 text-center font-black bg-blue-50 text-blue-900">{totalKg > 0 ? totalKg.toFixed(2) : "-"}</td>
+5315-                        <td className="p-1 border border-slate-200 text-center">
+5316-                          <button onClick={() => deleteMetalRow(row.id)} className="text-slate-300 hover:text-red-500 transition-colors p-1"><Trash2 size={14}/></button>
+5317-                        </td>
+5318-                      </tr>
+5319-                     );
+5320-                   })}
+5321-                   <tr>
+5322-                      <td colSpan="10" className="p-2 border border-slate-200">
+5323-                         <button onClick={addMetalRow} className="w-full py-2 bg-slate-50 border border-slate-200 border-dashed rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-colors"><Plus size={14} /> Añadir Fila</button>
+5324-                      </td>
+5325-                   </tr>
+5326-                </tbody>
+5327-              </table>
+5328-            </div>
+5329-            
+5330-            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end shrink-0 rounded-br-3xl">
+5331-               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex items-center gap-6">
+5332-                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Peso Polín Monten</span>
+5333-                  <div className="flex items-baseline gap-2">
+5334-                     <span className="text-2xl font-black text-blue-600 leading-none">{totalWeight.toFixed(2)}</span>
+5335-                     <span className="text-sm font-black text-blue-300 uppercase">kg</span>
+5336-                  </div>
+5337-               </div>
+5338-            </div>
+5339-          </div>
+5340-        </div>
+5341-      </div>
+5342-    );
+5343-  };
+5344-
+5345:  return (
+5346-    <div className="min-h-screen bg-[#fcfdfe] font-sans text-slate-900 p-4 md:p-6 flex flex-col">
+5347-      {renderSteelSubmodal()}
+5348-      {renderWallSubmodal()}
+5349-      {renderCasetonSubmodal()}
+5350-      {renderConceptSelectorModal()}
+5351-      {renderGeneratorModal()}
+5352-      {renderLevelReport()}
+5353-      {renderGlobalSteelReport()}
+5354-      <header className="max-w-7xl mx-auto mb-6 w-full shrink-0">
+5355-        <div className="flex justify-between items-start">
+5356-          {activePartidaId ? (
+5357-            <button
+5358-              onClick={() => {
+5359-                setActivePartidaId(null);
+5360-                setShowSettings(false);
+5361-                setShowWallGenerator(false);
+5362-                setShowStructureGenerator(false);
+5363-                setActiveWallSubmodal(null);
+5364-                setActiveSteelSubmodal(null);
+5365-                setActiveCasetonSubmodal(null);
+5366-                setActiveLevelReport(null);
+5367-              }}
+5368-              className="flex items-center gap-2 text-slate-400 hover:text-blue-600 font-bold text-[10px] uppercase tracking-[0.2em] transition-colors mb-4"
+5369-            >
+5370-              <ChevronLeft size={16} /> Volver a Opciones de Obra
+5371-            </button>
+5372-          ) : (
+5373-            <button
+5374-              onClick={onBack}
+5375-              className="flex items-center gap-2 text-slate-400 hover:text-blue-600 font-bold text-[10px] uppercase tracking-[0.2em] transition-colors mb-4"
+5376-            >
+5377-              <ChevronLeft size={16} /> Volver al Gestor de Obras
+5378-            </button>
+5379-          )}
+5380-        </div>
+5381-        <div className="flex justify-between items-end flex-wrap gap-4">
+5382-          <div className="flex flex-col gap-4">
+5383-            <div className="flex items-center gap-4">
+5384-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-sm">
+5385-                X
+5386-              </div>
+5387-              <div className="h-6 w-px bg-slate-200"></div>
+5388-              <span className="text-blue-600 font-black uppercase tracking-[0.4em] text-[8px]">
+5389-                Asset Management
+5390-              </span>
+5391-              <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 border border-slate-100 rounded-lg">
+5392-                <div className={`w-1.5 h-1.5 rounded-full ${isSavingAny ? "bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-teal-500 shadow-[0_0_8px_rgba(20,184,166,0.3)]"}`}></div>
+5393-                <span className={`text-[8px] font-black uppercase tracking-widest ${isSavingAny ? "text-amber-600" : "text-teal-600"}`}>
+5394-                  {isSavingAny ? "Sincronizando..." : "Guardado"}
+5395-                </span>
+5396-              </div>
+5397-            </div>
+5398-            <div>
+5399-              <h1 className="text-4xl font-black tracking-tighter mb-2">
+5400-                {obraInfo.nombre || ""}
+5401-              </h1>
+5402-              {activePartidaId ? (
+5403-                <p className="text-blue-600 font-black flex items-center gap-3 uppercase text-xs tracking-widest">
+5404-                  <Layers size={14} /> PARTIDA:{" "}
+5405-                  <span className="text-slate-600">{activePartida.nombre}</span>
+5406-                </p>
+5407-              ) : (
+5408-                <p className="text-slate-400 font-black flex items-center gap-3 uppercase text-[10px] tracking-widest">
+5409-                  <LayoutDashboard size={14} /> MENÚ DE PARTIDAS
+5410-                </p>
+5411-              )}
+5412-            </div>
+5413-          </div>
+5414-          <div className="flex gap-3 flex-wrap">
+5415-            {activePartidaId && (
+5416-              <>
+5417-                <button
+5418-                  onClick={() => {
+5419-                    setShowMetalStructureGenerator(!showMetalStructureGenerator);
+5420-                    setShowWallGenerator(false);
+5421-                    setShowStructureGenerator(false);
+5422-                    setShowSettings(false);
+5423-                  }}
+5424-                  className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all flex items-center gap-2 ${showMetalStructureGenerator ? "bg-red-700 text-white" : "bg-white border text-slate-700 hover:bg-red-50"}`}
+5425-                >
+5426-                  <Wrench size={16} /> Est. Metálica
+5427-                </button>
+5428-                <button
+5429-                  onClick={() => {
+5430-                    setShowStructureGenerator(!showStructureGenerator);
+5431-                    setShowWallGenerator(false);
+5432-                    setShowMetalStructureGenerator(false);
+5433-                    setShowSettings(false);
+5434-                  }}
+5435-                  className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all flex items-center gap-2 ${showStructureGenerator ? "bg-amber-600 text-white" : "bg-white border text-slate-700 hover:bg-amber-50"}`}
+5436-                >
+5437-                  <Box size={16} /> Estructura
+5438-                </button>
+5439-                <button
+5440-                  onClick={() => {
+5441-                    setShowWallGenerator(!showWallGenerator);
+5442-                    setShowStructureGenerator(false);
+5443-                    setShowMetalStructureGenerator(false);
+5444-                    setShowSettings(false);
+5445-                  }}
+5446-                  className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all flex items-center gap-2 ${showWallGenerator ? "bg-indigo-700 text-white" : "bg-white border text-slate-700 hover:bg-indigo-50"}`}
+5447-                >
+5448-                  <Building2 size={16} /> Muros
+5449-                </button>
+5450-              </>
+5451-            )}
+5452-              <button
+5453-                onClick={() => {
+5454-                  setShowSettings(!showSettings);
+5455-                  setShowWallGenerator(false);
+5456-                  setShowStructureGenerator(false);
+5457-                  setShowMetalStructureGenerator(false);
+5458-                }}
+5459-                className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg flex items-center gap-2 ${showSettings && !showWallGenerator && !showStructureGenerator && !showMetalStructureGenerator ? "bg-blue-600 text-white" : "bg-white border text-slate-700 hover:bg-slate-50"}`}
+5460-              >
+--
+5649:                    return (
+5650-                      <tr
+5651-                        key={e.id}
+5652-                        className={`transition-colors ${selectedStructureRows.includes(e.id) ? "bg-amber-50/50" : "hover:bg-slate-50"}`}
+5653-                      >
+5654-                        <td className="p-1 text-center border-r border-slate-200">
+5655-                          <button
+5656-                            onClick={() => toggleStructureRow(e.id)}
+5657-                            className={`${selectedStructureRows.includes(e.id) ? "text-amber-600" : "text-slate-300 hover:text-amber-500"} transition-colors`}
+5658-                          >
+5659-                            {selectedStructureRows.includes(e.id) ? (
+5660-                              <CheckSquare size={14} />
+5661-                            ) : (
+5662-                              <Square size={14} />
+5663-                            )}
+5664-                          </button>
+5665-                        </td>
+5666-                        <td className="p-1 text-center font-black text-slate-400 border-r">
+5667-                          {i + 1}
+5668-                        </td>
+5669-                        <td className="p-0 border-r">
+5670-                          <DebouncedCell
+5671-                            value={e.eje}
+5672-                            onChange={(v) =>
+5673-                              updateEstructuraField(e.id, "eje", v)
+5674-                            }
+5675-                            className="w-full p-1.5 bg-transparent font-bold uppercase outline-none focus:bg-white text-xs text-center"
+5676-                          />
+5677-                        </td>
+5678-                        <td className="p-0 border-r">
+5679-                          <DebouncedCell
+5680-                            value={e.clave}
+5681-                            onChange={(v) =>
+5682-                              updateEstructuraField(e.id, "clave", v)
+5683-                            }
+5684-                            className="w-full p-1.5 bg-transparent font-bold uppercase outline-none focus:bg-white text-xs text-center"
+5685-                          />
+5686-                        </td>
+5687-                        <td className="p-0 border-r">
+5688-                          <select
+5689-                            className="w-full p-1.5 bg-transparent outline-none font-bold text-slate-700 uppercase cursor-pointer text-[10px]"
+5690-                            value={e.tipo || ""}
+5691-                            onChange={(ev) =>
+5692-                              updateEstructuraField(
+5693-                                e.id,
+5694-                                "tipo",
+5695-                                ev.target.value,
+5696-                              )
+5697-                            }
+5698-                          >
+5699-                            <option value="" disabled>
+5700-                              Sel...
+5701-                            </option>
+5702-                            <option value="zapata aislada">
+5703-                              Zapata Aislada
+5704-                            </option>
+5705-                            <option value="zapata corrida">
+5706-                              Zapata Corrida
+5707-                            </option>
+5708-                            <option value="dado">Dado</option>
+5709-                            <option value="contratrabe">Contratrabe</option>
+5710-                            <option value="muro">Muro</option>
+5711-                            <option value="muro curvo">Muro Curvo</option>
+5712-                            <option value="losa">Losa</option>
+5713-                            <option value="losa nervada">Losa Nervada</option>
+5714-                            <option value="losa de vigueta">Losa de Vigueta</option>
+5715-                            <option value="columna">Columna</option>
+5716-                            <option value="columna circular">Columna Circular</option>
+5717-                            <option value="pilas">Pilas</option>
+5718-                            <option value="trabe">Trabe</option>
+5719-                            <option value="nervadura">Nervadura</option>
+5720-                          </select>
+5721-                        </td>
+5722-                        <td className="p-0 border-r bg-indigo-50/10 text-center">
+5723-                          <input
+5724-                            type="checkbox"
+5725-                            checked={Boolean(e.i)}
+5726-                            onChange={(ev) =>
+5727-                              updateEstructuraField(
+5728-                                e.id,
+5729-                                "i",
+5730-                                ev.target.checked,
+5731-                              )
+5732-                            }
+5733-                            disabled={
+5734-                              ![
+5735-                                "trabe",
+5736-                                "contratrabe",
+5737-                                "zapata corrida",
+5738-                              ].includes((e.tipo || "").toLowerCase())
+5739-                            }
+5740-                            className="w-3 h-3 cursor-pointer accent-indigo-600"
+5741-                          />
+5742-                        </td>
+5743-                        <td className="p-0 border-r bg-blue-50/20">
+5744-                          <DebouncedCell
+5745-                            value={e.largo}
+5746-                            onChange={(v) =>
+5747-                              updateEstructuraField(e.id, "largo", v)
+5748-                            }
+5749-                            className="w-full p-1.5 bg-transparent text-center text-blue-900 font-bold text-xs"
+5750-                          />
+5751-                        </td>
+5752-                        <td className="p-0 border-r bg-blue-50/20">
+5753-                          <DebouncedCell
+5754-                            value={e.ancho}
+5755-                            onChange={(v) =>
+5756-                              updateEstructuraField(e.id, "ancho", v)
+5757-                            }
+5758-                            className="w-full p-1.5 bg-transparent text-center text-blue-900 font-bold text-xs"
+5759-                          />
+5760-                        </td>
+5761-                        <td className="p-0 border-r bg-blue-50/20">
+5762-                          <DebouncedCell
+5763-                            value={e.alto}
+5764-                            onChange={(v) =>
+--
+6591:                        return (
+6592-                          <div
+6593-                            key={tipo}
+6594-                            className="bg-amber-50/30 border border-amber-100 rounded-2xl p-4 flex flex-col xl:flex-row items-center gap-4"
+6595-                          >
+6596-                            <div className="font-black text-amber-900 uppercase tracking-widest text-sm w-40 shrink-0">
+6597-                              {tipo}
+6598-                            </div>
+6599-                            <div className="flex flex-wrap gap-3 flex-1">
+6600-                              {data.concreto > 0 && !data.isCimentacion && (
+6601-                                <div className="bg-white border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+6602-                                  <div>
+6603-                                    <span className="block text-[8px] font-black text-amber-600 uppercase">
+6604-                                      Concreto
+6605-                                    </span>
+6606-                                    <span className="text-sm font-black text-slate-800">
+6607-                                      {data.concreto.toFixed(2)} m3
+6608-                                    </span>
+6609-                                  </div>
+6610-                                  <button
+6611-                                    onClick={() =>
+6612-                                      handleCopyStructure(tipo, "concreto")
+6613-                                    }
+6614-                                    className="text-amber-400 hover:text-amber-600"
+6615-                                  >
+6616-                                    <Clipboard size={14} />
+6617-                                  </button>
+6618-                                </div>
+6619-                              )}
+6620-                              {data.casetones > 0 && (
+6621-                                <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+6622-                                  <div>
+6623-                                    <span className="block text-[8px] font-black text-sky-600 uppercase">
+6624-                                      Casetones
+6625-                                    </span>
+6626-                                    <span className="text-sm font-black text-slate-800">
+6627-                                      {data.casetones.toFixed(2)} m3
+6628-                                    </span>
+6629-                                  </div>
+6630-                                  <button
+6631-                                    onClick={() =>
+6632-                                      handleCopyStructure(tipo, "caseton")
+6633-                                    }
+6634-                                    className="text-sky-400 hover:text-sky-600"
+6635-                                  >
+6636-                                    <Clipboard size={14} />
+6637-                                  </button>
+6638-                                </div>
+6639-                              )}
+6640-                              {data.cimbra > 0 && tipo !== "Muros" && tipo !== "Columnas" && tipo !== "Columnas Circulares" && (
+6641-                                <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+6642-                                  <div>
+6643-                                    <span className="block text-[8px] font-black text-amber-700 uppercase">
+6644-                                      Cimbra
+6645-                                    </span>
+6646-                                    <span className="text-sm font-black text-amber-900">
+6647-                                      {data.cimbra.toFixed(2)} m2/ml
+6648-                                    </span>
+6649-                                  </div>
+6650-                                  <button
+6651-                                    onClick={() =>
+6652-                                      handleCopyStructure(tipo, "cimbra")
+6653-                                    }
+6654-                                    className="text-amber-500 hover:text-amber-700"
+6655-                                  >
+6656-                                    <Clipboard size={14} />
+6657-                                  </button>
+6658-                                </div>
+6659-                              )}
+6660-                              {tipo === "Muros" && data.cimbraMuros_0_3 > 0 && (
+6661-                                <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+6662-                                  <div>
+6663-                                    <span className="block text-[8px] font-black text-amber-700 uppercase">
+6664-                                      Cimbra 0-3m
+6665-                                    </span>
+6666-                                    <span className="text-sm font-black text-amber-900">
+6667-                                      {data.cimbraMuros_0_3.toFixed(2)} m2/ml
+6668-                                    </span>
+6669-                                  </div>
+6670-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraMuros_0_3")} className="text-amber-500 hover:text-amber-700">
+6671-                                    <Clipboard size={14} />
+6672-                                  </button>
+6673-                                </div>
+6674-                              )}
+6675-                              {tipo === "Muros" && data.cimbraMuros_3_6 > 0 && (
+6676-                                <div className="bg-orange-100 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+6677-                                  <div>
+6678-                                    <span className="block text-[8px] font-black text-orange-700 uppercase">
+6679-                                      Cimbra 3-6m
+6680-                                    </span>
+6681-                                    <span className="text-sm font-black text-orange-900">
+6682-                                      {data.cimbraMuros_3_6.toFixed(2)} m2/ml
+6683-                                    </span>
+6684-                                  </div>
+6685-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraMuros_3_6")} className="text-orange-500 hover:text-orange-700">
+6686-                                    <Clipboard size={14} />
+6687-                                  </button>
+6688-                                </div>
+6689-                              )}
+6690-                              {tipo === "Muros" && data.cimbraMuros_6_9 > 0 && (
+6691-                                <div className="bg-red-100 border border-red-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+6692-                                  <div>
+6693-                                    <span className="block text-[8px] font-black text-red-700 uppercase">
+6694-                                      Cimbra {">"} 6m
+6695-                                    </span>
+6696-                                    <span className="text-sm font-black text-red-900">
+6697-                                      {data.cimbraMuros_6_9.toFixed(2)} m2/ml
+6698-                                    </span>
+6699-                                  </div>
+6700-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraMuros_6_9")} className="text-red-500 hover:text-red-700">
+6701-                                    <Clipboard size={14} />
+6702-                                  </button>
+6703-                                </div>
+6704-                              )}
+6705-                              {tipo === "Muros" && data.cimbraMuroCurvo_0_3 > 0 && (
+6706-                                <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+--
+6985:                     return (
+6986-                       <tr key={m.id} className={`transition-colors ${selectedWallRows.includes(m.id) ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}>
+6987-                         <td className="p-1 text-center border-r border-slate-200"><button onClick={() => toggleWallRow(m.id)} className={`${selectedWallRows.includes(m.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-indigo-500'} transition-colors`}>{selectedWallRows.includes(m.id) ? <CheckSquare size={14} /> : <Square size={14} />}</button></td>
+6988-                         <td className="p-1.5 text-center font-black text-slate-400 border-r">{i + 1}</td>
+6989-                         <td className="p-0 border-r"><DebouncedCell value={m.eje} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, eje: v} : x))} className="w-full p-2 bg-transparent font-bold uppercase outline-none text-[10px] md:text-xs text-center" /></td>
+6990-                         <td className="p-0 border-r"><DebouncedCell value={m.clave} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, clave: v} : x))} className="w-full p-2 bg-transparent font-bold uppercase outline-none text-[10px] md:text-xs text-center" /></td>
+6991-                         <td className="p-0 border-r bg-blue-50/10"><DebouncedCell value={m.largo} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, largo: v} : x))} className="w-full p-2 bg-transparent text-center text-blue-900 font-bold text-[10px] md:text-xs" /></td>
+6992-                         <td className="p-0 border-r bg-blue-50/10"><DebouncedCell value={m.ancho} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, ancho: v} : x))} className="w-full p-2 bg-transparent text-center text-blue-900 font-bold text-[10px] md:text-xs" /></td>
+6993-                         <td className="p-0 border-r bg-blue-50/10"><DebouncedCell value={m.alto} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, alto: v} : x))} className="w-full p-2 bg-transparent text-center text-blue-900 font-bold text-[10px] md:text-xs" /></td>
+6994-                         <td className="p-2 border-r text-center font-black text-slate-500 bg-slate-50/50 text-[10px] md:text-xs">{bruto > 0 ? bruto.toFixed(2) : '-'}</td>
+6995-                         <td className="p-0 border-r bg-red-50/30 hover:bg-red-100 transition-colors cursor-pointer" onClick={() => setActiveWallSubmodal({wallId: m.id, type: 'huecos'})}><div className="w-full h-full p-2 text-center font-black text-red-600 text-[10px] md:text-xs">{dedH > 0 ? dedH.toFixed(2) : '0.00'}</div></td>
+6996-                         <td className="p-0 border-r bg-orange-50/30 hover:bg-orange-100 transition-colors cursor-pointer" onClick={() => setActiveWallSubmodal({wallId: m.id, type: 'castillos'})}><div className="w-full h-full p-2 text-center font-black text-orange-600 text-[10px] md:text-xs">{dedC > 0 ? dedC.toFixed(2) : '0.00'}</div></td>
+6997-                         <td className="p-2 border-r text-center font-black text-emerald-700 bg-emerald-50 text-[10px] md:text-sm">{neto > 0 ? neto.toFixed(2) : '-'}</td>
+6998-                         <td className="p-0 border-r"><DebouncedCell value={m.tipoAplanadoC1} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, tipoAplanadoC1: v} : x))} className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase" /></td>
+6999-                         <td className="p-0 border-r"><DebouncedCell value={m.tipoAplanadoC2} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, tipoAplanadoC2: v} : x))} className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase" /></td>
+7000-                         <td className="p-0 border-r"><DebouncedCell value={m.tipoRecubrimientoC1} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, tipoRecubrimientoC1: v} : x))} className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase" /></td>
+7001-                         <td className="p-0 border-r"><DebouncedCell value={m.tipoRecubrimientoC2} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, tipoRecubrimientoC2: v} : x))} className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase" /></td>
+7002-                         <td className="p-1 text-center border-l border-slate-200"><div className="flex justify-center items-center gap-0.5"><button onClick={() => handleCopyWallRow(m)} className="p-1 rounded text-slate-400 hover:text-indigo-600"><Copy size={14} /></button><button onClick={() => handlePasteWallRow(m.id)} disabled={!copiedWallRow} className="p-1 rounded text-slate-400 disabled:opacity-10"><ClipboardPaste size={14} /></button><button onClick={() => updateActiveMuros(prev => prev.filter(x => x.id !== m.id))} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={14} /></button></div></td>
+7003-                       </tr>
+7004-                     );
+7005-                   })}
+7006-                 </tbody>
+7007-               </table>
+7008-             </div>
+7009-             <div className="p-4 bg-white border-t border-slate-100 flex gap-3 flex-wrap shrink-0">
+7010-               <button onClick={() => updateActiveMuros(prev => { const lastRow = prev[prev.length - 1]; const nextClave = lastRow ? getNextClaveValue(lastRow.clave) : ''; return [...prev, { id: `M-${Date.now()}`, eje: lastRow?.eje || '', clave: nextClave, largo: '', ancho: '', alto: '', huecos: [], castillos: [], tipoAplanadoC1: '', tipoAplanadoC2: '', tipoRecubrimientoC1: '', tipoRecubrimientoC2: '' }]; })} className="px-6 py-2 border-2 border-dashed border-indigo-200 text-indigo-600 font-black rounded-lg hover:bg-indigo-50 text-[10px] uppercase tracking-wider">+ Agregar Muro</button>
+7011-               <button onClick={handleCopySelectedWalls} className={`px-6 py-2 rounded-lg font-black text-[10px] uppercase flex items-center gap-2 transition-colors ${selectedWallRows.length > 0 ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}><Copy size={14}/> {copyStatus === 'copied-wall-list' ? '¡Copiado!' : selectedWallRows.length > 0 ? `Copiar (${selectedWallRows.length})` : 'Copiar Todas'}</button>
+7012-               <button onClick={handlePasteSelectedWalls} disabled={!copiedWallRowsList || copiedWallRowsList.length === 0} className={`px-6 py-2 rounded-lg font-black text-[10px] uppercase flex items-center gap-2 transition-all ${copiedWallRowsList && copiedWallRowsList.length > 0 ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700 shadow-sm cursor-pointer' : 'bg-slate-50 text-slate-300 cursor-not-allowed'}`}><ClipboardPaste size={14}/> Pegar Datos</button>
+7013-               <button onClick={() => {
+7014-                   const levelNameExport = niveles.find(n=>n.id===activeLevelId)?.nombre||'TODOS LOS NIVELES';
+7015-                   const renderExVal = (v) => {
+7016-                       const num = parseFloat(v);
+7017-                       if (isNaN(num) || num === 0) return '-';
+7018-                       return num.toFixed(2);
+7019-                   };
+7020-
+7021-                   let html = `<table style="border-collapse: collapse; font-family: Arial, sans-serif;">
+7022-                      <colgroup>
+7023-                         <col width="40" style="width: 40px;" />
+7024-                         <col width="120" style="width: 120px;" />
+7025-                         <col width="120" style="width: 120px;" />
+7026-                         <col width="120" style="width: 120px;" />
+7027-                         <col width="120" style="width: 120px;" />
+7028-                         <col width="120" style="width: 120px;" />
+7029-                         <col width="120" style="width: 120px;" />
+7030-                         <col width="120" style="width: 120px;" />
+7031-                         <col width="120" style="width: 120px;" />
+7032-                         <col width="120" style="width: 120px;" />
+7033-                         <col width="120" style="width: 120px;" />
+7034-                         <col width="280" style="width: 280px;" />
+7035-                         <col width="280" style="width: 280px;" />
+7036-                         <col width="280" style="width: 280px;" />
+7037-                         <col width="280" style="width: 280px;" />
+7038-                      </colgroup>
+7039-                      <thead>
+7040-                      <tr style="height: 15pt;">
+7041-                         <td colspan="15" style="border: none; background-color: #ffffff;"></td>
+7042-                      </tr>
+7043-                      <tr style="height: 20pt;">
+7044-                         <td style="border: none; background-color: #ffffff;"></td>
+7045-                         <th colspan="14" style="background-color: #333f8f; color: #ffffff; font-size: 12pt; font-family: Arial, sans-serif; font-weight: bold; text-align: center; vertical-align: middle; border: 1px solid #333f8f; text-transform: uppercase;">
+7046-                            MATRIZ DE MUROS - NIVEL: ${levelNameExport}
+7047-                         </th>
+7048-                      </tr>
+7049-                      <tr style="height: 15pt;">
+7050-                         <td colspan="15" style="border: none; background-color: #ffffff;"></td>
+7051-                      </tr>
+7052-                      <tr style="background-color: #e6e6fa; color: #312eb5; font-size: 8pt; font-family: Arial, sans-serif; text-align: center; height: 15pt;">
+7053-                         <td style="border: none; background-color: #ffffff;"></td>
+7054-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">NO.</th>
+7055-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">EJE</th>
+7056-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">CLAVE</th>
+7057-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">LARGO (M)</th>
+7058-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">ANCHO (M)</th>
+7059-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">ALTO (M)</th>
+7060-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">BRUTO (M2)</th>
+7061-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">-HUECOS (M2)</th>
+7062-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">-CAST. (M2)</th>
+7063-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">NETA (M2)</th>
+7064-                         <th colspan="2" style="border: 1px solid #c7d2fe; width: 560px; vertical-align: middle;">APLANADO</th>
+7065-                         <th colspan="2" style="border: 1px solid #c7d2fe; width: 560px; vertical-align: middle;">RECUBRIMIENTO</th>
+7066-                      </tr>
+7067-                      <tr style="background-color: #e6e6fa; color: #312eb5; font-size: 8pt; font-family: Arial, sans-serif; height: 15pt; text-align: center;">
+7068-                         <td style="border: none; background-color: #ffffff;"></td>
+7069-                         <th style="border: 1px solid #c7d2fe; width: 280px; vertical-align: middle;">C1</th>
+7070-                         <th style="border: 1px solid #c7d2fe; width: 280px; vertical-align: middle;">C2</th>
+7071-                         <th style="border: 1px solid #c7d2fe; width: 280px; vertical-align: middle;">C1</th>
+7072-                         <th style="border: 1px solid #c7d2fe; width: 280px; vertical-align: middle;">C2</th>
+7073-                      </tr>
+7074-                   </thead><tbody>`;
+7075-
+7076-                   muros.forEach((m, i) => {
+7077-                      const bruto = calcWallArea(m.largo, m.alto), dedH = getWallHuecosTotal(m.huecos), dedC = getWallCastillosTotal(m.castillos, m.alto), neto = Math.max(0, bruto - dedH - dedC);
+7078-                      html += `<tr style="text-align: center; background-color: #ffffff; height: 18pt;">
+7079-                         <td style="border: none; background-color: #ffffff;"></td>
+7080-                         <td style="border: 1px solid #c7d2fe; color: #a6a6a6; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center; mso-number-format:'0';">${i+1}</td>
+7081-                         <td style="border: 1px solid #c7d2fe; color: #312eb5; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.eje || ''}</td>
+7082-                         <td style="border: 1px solid #c7d2fe; color: #000000; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.clave || ''}</td>
+7083-                         <td style="border: 1px solid #c7d2fe; color: #000066; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(m.largo)}</td>
+7084-                         <td style="border: 1px solid #c7d2fe; color: #000066; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(m.ancho)}</td>
+7085-                         <td style="border: 1px solid #c7d2fe; color: #000066; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(m.alto)}</td>
+7086-                         <td style="border: 1px solid #c7d2fe; color: #404040; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(bruto)}</td>
+7087-                         <td style="border: 1px solid #c7d2fe; color: #c00000; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${dedH > 0 ? dedH.toFixed(2) : '-'}</td>
+7088-                         <td style="border: 1px solid #c7d2fe; color: #e36c0a; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${dedC > 0 ? dedC.toFixed(2) : '-'}</td>
+7089-                         <td style="border: 1px solid #c7d2fe; color: #00b050; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(neto)}</td>
+7090-                         <td style="border: 1px solid #c7d2fe; color: #800080; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoAplanadoC1 || ''}</td>
+7091-                         <td style="border: 1px solid #c7d2fe; color: #800080; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoAplanadoC2 || ''}</td>
+7092-                         <td style="border: 1px solid #c7d2fe; color: #800080; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoRecubrimientoC1 || ''}</td>
+7093-                         <td style="border: 1px solid #c7d2fe; color: #800080; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoRecubrimientoC2 || ''}</td>
+7094-                      </tr>`;
+7095-                   });
+7096-                   html += `</tbody></table><br/><br/><br/>`;
+7097-
+7098-                   html += `<table style="width: 100%; border: none; font-family: Arial, sans-serif;"><tr>
+7099-                      <td style="width: 40px; border: none;"></td>
+7100-                      <td style="vertical-align: top; border: none; padding-right: 20px;">
+--
+7436:                      return (
+7437-                        <td
+7438-                          key={n.id}
+7439-                          onClick={() => {
+7440-                            setEditingModal({ concepto: c, nivel: n });
+7441-                            setSelectedGeneratorRows([]);
+7442-                          }}
+7443-                          className={`p-1 md:p-1.5 border text-center cursor-pointer font-black text-[11px] md:text-xs leading-tight ${vol > 0 ? "bg-emerald-50 text-emerald-800" : "text-slate-200 hover:bg-blue-50"}`}
+7444-                        >
+7445-                          {vol.toFixed(2)}
+7446-                        </td>
+7447-                      );
+7448-                    })}
+7449-                    <td className="p-1 md:p-1.5 border text-center font-black bg-gray-100 text-[11px] md:text-xs leading-tight text-slate-800">
+7450-                      {getTotalConcepto(c.id).toFixed(2)}
+7451-                    </td>
+7452-                    <td className="p-0 border text-center">
+7453-                      <button
+7454-                        onClick={() =>
+7455-                          updateActiveConceptos((prev) =>
+7456-                            prev.filter((x) => x.id !== c.id),
+7457-                          )
+7458-                        }
+7459-                        className="text-red-300 hover:text-red-500 transition-colors p-1"
+7460-                      >
+7461-                        <Trash2 size={14} />
+7462-                      </button>
+7463-                    </td>
+7464-                  </tr>
+7465-                ))}
+7466-              </tbody>
+7467-            </table>
+7468-            <div className="p-3 md:p-4 flex gap-4 sticky bottom-0 bg-white border-t">
+7469-              <button
+7470-                onClick={() =>
+7471-                  updateActiveConceptos((prev) => [
+7472-                    ...prev,
+7473-                    {
+7474-                      id: `C-${Date.now().toString(36).toUpperCase()}`,
+7475-                      clave: "",
+7476-                      cc: "",
+7477-                      justificacion: "",
+7478-                      descripcion: "",
+7479-                      unidad: "m2",
+7480-                    },
+7481-                  ])
+7482-                }
+7483-                className="px-5 py-2 bg-slate-700 text-white rounded-xl text-[10px] md:text-xs font-black shadow-md transition-transform active:scale-95 uppercase tracking-wider"
+7484-              >
+7485-                + Agregar Concepto
+7486-              </button>
+7487-              <button
+7488-                onClick={() => {
+7489-                  let html = `<table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">
+7490-                      <colgroup>
+7491-                         <col width="120" />
+7492-                         <col width="100" />
+7493-                         <col width="100" />
+7494-                         <col width="250" />
+7495-                         <col width="450" />
+7496-                         <col width="80" />
+7497-                         ${niveles.map(() => '<col width="100" />').join("")}
+7498-                         <col width="100" />
+7499-                      </colgroup>
+7500-                      <thead>
+7501-                      <tr style="height: 25pt;">
+7502-                         <td colspan="${6 + niveles.length + 1}" style="background-color: #0b1a30; color: #ffffff; font-size: 10pt; font-weight: bold; text-align: center; vertical-align: middle; padding: 8px; border: none; text-transform: uppercase;">
+7503-                            CATÁLOGO GENERAL - PARTIDA: ${activePartida.nombre}
+7504-                         </td>
+7505-                      </tr>
+7506-                      <tr><td colspan="${6 + niveles.length + 1}" style="height: 10px; border: none; background-color: #ffffff;"></td></tr>
+7507-                      <tr style="height: 20pt;">
+7508-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CÓDIGO</td>
+7509-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CLAVE</td>
+7510-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CC</td>
+7511-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">JUSTIFICACIÓN</td>
+7512-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">DESCRIPCIÓN</td>
+7513-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">UNID.</td>
+7514-                         ${niveles.map((n) => `<td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">${n.nombre.toUpperCase()}</td>`).join("")}
+7515-                         <td style="background-color: #000000; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">TOTAL</td>
+7516-                      </tr>
+7517-                  </thead><tbody>`;
+7518-
+7519-                  conceptos.forEach((c) => {
+7520-                    const just = (c.justificacion || "").replace(/\n/g, " ");
+7521-                    const desc = (c.descripcion || "").replace(/\n/g, " ");
+7522-                    const total = getTotalConcepto(c.id);
+7523-
+7524-                    html += `<tr style="background-color: #f4f6f9; mso-height-source: auto;">
+7525-                         <td style="font-weight: bold; color: #002060; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 12pt;">${c.id}</td>
+7526-                         <td style="font-weight: bold; color: #404040; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 10pt;">${c.clave || ""}</td>
+7527-                         <td style="font-weight: bold; color: #404040; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 10pt;">${c.cc || ""}</td>
+7528-                         <td style="color: #404040; text-align: left; vertical-align: middle; padding: 10px; border: 1px solid #b4c6e7; font-size: 10pt; white-space: normal; word-wrap: break-word; mso-height-source: auto;">${just}</td>
+7529-                         <td style="font-weight: bold; color: #404040; text-align: left; vertical-align: middle; padding: 10px; border: 1px solid #b4c6e7; font-size: 10pt; white-space: normal; word-wrap: break-word; mso-height-source: auto;">${desc}</td>
+7530-                         <td style="color: #0070c0; font-weight: bold; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 12pt;">${c.unidad || ""}</td>
+7531-                         ${niveles
+7532-                           .map((n) => {
+7533-                             const vol = getVolumenNivel(c.id, n.id);
+7534-                             if (vol > 0) {
+7535-                               return `<td style="font-weight: bold; background-color: #e2efda; color: #00b050; text-align: right; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt; mso-number-format:'0\\.00';">${vol.toFixed(2)}</td>`;
+7536-                             } else {
+7537-                               return `<td style="color: #d9d9d9; text-align: right; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt;">-</td>`;
+7538-                             }
+7539-                           })
+7540-                           .join("")}
+7541-                         <td style="font-weight: bold; color: #000000; text-align: right; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt; mso-number-format:'0\\.00';">${total > 0 ? total.toFixed(2) : "-"}</td>
+7542-                      </tr>`;
+7543-                  });
+7544-                  html += "</tbody></table>";
+7545-                  exportFormattedExcel(
+7546-                    html,
+7547-                    `Matriz_Conceptos_${activePartida.nombre}`,
+7548-                  );
+7549-                }}
+7550-                className="px-5 py-2 bg-emerald-600 text-white rounded-xl text-[10px] md:text-xs font-black shadow-md transition-transform active:scale-95 uppercase tracking-wider hover:bg-emerald-500 flex items-center gap-2 ml-auto"
+7551-              >
+--
+7614:  return (
+7615-    <div className="min-h-screen bg-[#fcfdfe] font-sans text-slate-900 p-8 flex flex-col items-center">
+7616-      <div className="max-w-7xl w-full animate-in fade-in duration-500">
+7617-        <div className="flex justify-between items-end mb-12">
+7618-          <div className="flex flex-col gap-4">
+7619-            <div className="flex items-center gap-4">
+7620-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-sm">
+7621-                X
+7622-              </div>
+7623-              <div className="h-6 w-px bg-slate-200"></div>
+7624-              <span className="text-blue-600 font-black uppercase tracking-[0.4em] text-[8px]">
+7625-                Asset Management
+7626-              </span>
+7627-            </div>
+7628-            <div>
+7629-              <h1 className="text-4xl font-black tracking-tighter mb-2">
+7630-                Gestor de Obras
+7631-              </h1>
+7632-              <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">
+7633-                Administración Global de Proyectos
+7634-              </p>
+7635-            </div>
+7636-          </div>
+7637-        </div>
+7638-
+7639-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+7640-          <div
+7641-            onClick={onCreate}
+7642-            className="bg-slate-50/50 rounded-[2rem] p-8 border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50 transition-all flex flex-col items-center justify-center cursor-pointer text-slate-400 hover:text-blue-600 min-h-[250px] group"
+7643-          >
+7644-            <div className="bg-white w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-sm group-hover:scale-110 transition-transform">
+7645-              <FolderPlus size={28} />
+7646-            </div>
+7647-            <span className="font-black text-sm uppercase tracking-widest">
+7648-              Nueva Obra
+7649-            </span>
+7650-            <span className="text-[10px] font-bold mt-2 opacity-60 uppercase text-center">
+7651-              Crear espacio de trabajo
+7652-            </span>
+7653-          </div>
+7654-          <div
+7655-            onClick={onCatMaestro}
+7656-            className="bg-teal-50/50 rounded-[2rem] p-8 border-2 border-dashed border-teal-300 hover:border-teal-400 hover:bg-teal-50 transition-all flex flex-col items-center justify-center cursor-pointer text-teal-400 hover:text-teal-600 min-h-[250px] group"
+7657-          >
+7658-            <div className="bg-white w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-sm group-hover:scale-110 transition-transform">
+7659-              <ListPlus size={28} />
+7660-            </div>
+7661-            <span className="font-black text-sm uppercase tracking-widest text-teal-600">
+7662-              Catálogo Maestro
+7663-            </span>
+7664-            <span className="text-[10px] font-bold mt-2 opacity-60 uppercase text-center text-teal-500">
+7665-              Gestionar base de datos central
+7666-            </span>
+7667-          </div>
+7668-          {projects.map((p) => (
+7669-            <div
+7670-              key={p.id}
+7671-              onClick={() => onSelect(p.id)}
+7672-              className="bg-white rounded-[2rem] p-8 border border-slate-200 shadow-sm hover:shadow-xl hover:border-blue-300 transition-all group flex flex-col cursor-pointer relative overflow-hidden h-[250px]"
+7673-            >
+7674-              <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 group-hover:-rotate-12 duration-500">
+7675-                <Building2 size={120} />
+7676-              </div>
+7677-              <div className="bg-blue-50 w-16 h-16 rounded-2xl flex items-center justify-center text-blue-600 mb-6 group-hover:scale-110 transition-transform shadow-sm">
+7678-                <Building2 size={28} />
+7679-              </div>
+7680-              <h3 className="text-xl font-black text-slate-800 mb-2 uppercase leading-tight z-10">
+7681-                {p.name || "Obra Sin Nombre"}
+7682-              </h3>
+7683-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-10 z-10">
+7684-                {p.location || "Ubicación no definida"}
+7685-              </p>
+7686-              <div className="mt-auto flex justify-between items-center border-t border-slate-100 pt-6 z-10">
+7687-                <span className="text-blue-600 font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
+7688-                  Abrir Obra <ChevronRight size={16} />
+7689-                </span>
+7690-                <button
+7691-                  type="button"
+7692-                  onClick={(e) => {
+7693-                    e.preventDefault();
+7694-                    e.stopPropagation();
+7695-                    console.log("Click en borrar obra:", p.id);
+7696-                    onDelete(p.id);
+7697-                  }}
+7698-                  className="bg-slate-50 text-slate-400 hover:text-red-600 px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center justify-center gap-2 group/del border border-slate-100 hover:border-red-100 relative z-50 ml-auto"
+7699-                >
+7700-                  <Trash2 size={16} className="group-hover/del:scale-110 transition-transform" />
+7701-                  <span className="text-[10px] font-black uppercase tracking-widest">Borrar</span>
+7702-                </button>
+7703-              </div>
+7704-            </div>
+7705-          ))}
+7706-        </div>
+7707-      </div>
+7708-    </div>
+7709-  );
+7710-};
+7711-
+7712-export default function App() {
+7713-  const [user, setUser] = useState(null);
+7714-  const [authInit, setAuthInit] = useState(false);
+7715-
+7716-  useEffect(() => {
+7717-    if (!auth) {
+7718-      setAuthInit(true);
+7719-      return;
+7720-    }
+7721-    const initAuth = async () => {
+7722-      try {
+7723-        if (
+7724-          typeof __initial_auth_token !== "undefined" &&
+7725-          __initial_auth_token
+7726-        ) {
+7727-          await signInWithCustomToken(auth, __initial_auth_token);
+7728-        } else {
+7729-          await signInAnonymously(auth);
+--
+7740:    return () => unsubscribe();
+7741-  }, []);
+7742-
+7743-  const [projects, setProjects, loadedProjects, savingProjects] = usePersistentState(
+7744-    "xdifica_projects_list",
+7745-    [],
+7746-    user,
+7747-  );
+7748-  const [catalogoConceptos, setCatalogoConceptos, loadedCatalogo, savingCatalogo] =
+7749-    usePersistentState("xdifica_global_catalogo_v3", [], user);
+7750-  const [activeProjectId, setActiveProjectId] = useState(null);
+7751-  const [showGlobalCatalogo, setShowGlobalCatalogo] = useState(false);
+7752-
+7753-  useEffect(() => {
+7754-    const handleBeforeUnload = (e) => {
+7755-      if (savingProjects || savingCatalogo) {
+7756-        e.preventDefault();
+7757-        e.returnValue = "";
+7758-      }
+7759-    };
+7760-    window.addEventListener("beforeunload", handleBeforeUnload);
+7761:    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+7762-  }, [savingProjects, savingCatalogo]);
+7763-
+7764-  useEffect(() => {
+7765-    if (!loadedProjects || !authInit || !user) return;
+7766-    const oldData = localStorage.getItem("xdifica_partidas");
+7767-    if (oldData && projects.length === 0) {
+7768-      const migId = `PROJ-${Date.now()}`;
+7769-      let projectName = "Proyecto Migrado Local";
+7770-      let projectLocation = "Automático";
+7771-      const oldInfo = localStorage.getItem("xdifica_obraInfo");
+7772-      if (oldInfo) {
+7773-        try {
+7774-          const parsed = JSON.parse(oldInfo);
+7775-          if (parsed.nombre) projectName = parsed.nombre;
+7776-          if (parsed.ubicacion) projectLocation = parsed.ubicacion;
+7777-        } catch (e) {}
+7778-      }
+7779-      setProjects([
+7780-        { id: migId, name: projectName, location: projectLocation },
+7781-      ]);
+7782-      const payload = { partidas: JSON.parse(oldData) };
+7783-      if (oldInfo) payload.obraInfo = JSON.parse(oldInfo);
+7784-      const oldNiveles = localStorage.getItem("xdifica_niveles");
+7785-      if (oldNiveles) payload.niveles = JSON.parse(oldNiveles);
+7786-      if (user && db) {
+7787-        const docRef = doc(
+7788-          db,
+7789-          "artifacts",
+7790-          appId,
+7791-          "users",
+7792-          user.uid,
+7793-          "projects",
+7794-          migId,
+7795-        );
+7796-        setDoc(docRef, payload, { merge: true });
+7797-      } else {
+7798-        localStorage.setItem(
+7799-          `xdifica_proj_${migId}_partidas`,
+7800-          JSON.stringify(payload.partidas),
+7801-        );
+7802-        if (payload.obraInfo)
+7803-          localStorage.setItem(
+7804-            `xdifica_proj_${migId}_obraInfo`,
+7805-            JSON.stringify(payload.obraInfo),
+7806-          );
+7807-        if (payload.niveles)
+7808-          localStorage.setItem(
+7809-            `xdifica_proj_${migId}_niveles`,
+7810-            JSON.stringify(payload.niveles),
+7811-          );
+7812-      }
+7813-      localStorage.removeItem("xdifica_partidas");
+7814-      localStorage.removeItem("xdifica_obraInfo");
+7815-      localStorage.removeItem("xdifica_niveles");
+7816-    }
+7817-  }, [projects.length, setProjects, loadedProjects, authInit, user]);
+7818-
+7819-  const handleCreateProject = () => {
+7820-    const newId = `PROJ-${Date.now().toString(36).toUpperCase()}`;
+7821-    setProjects([
+7822-      { id: newId, name: "NUEVA OBRA", location: "Sin definir" },
+7823-      ...projects,
+7824-    ]);
+7825-    setActiveProjectId(newId);
+7826-  };
+7827-
+7828-  const [projectToDelete, setProjectToDelete] = useState(null);
+7829-
+7830-  const handleDeleteProject = useCallback(async (id) => {
+7831-    console.log("Eliminando obra:", id);
+7832-    setProjects((prev) => prev.filter((p) => p.id !== id));
+7833-    if (user && db) {
+7834-      const docRef = doc(
+7835-        db,
+7836-        "artifacts",
+7837-        appId,
+7838-        "users",
+7839-        user.uid,
+7840-        "projects",
+7841-        id,
+7842-      );
+7843-      await deleteDoc(docRef).catch((e) =>
+7844-        console.error("Error al borrar en Firestore:", e),
+7845-      );
+7846-    } else {
+7847-      ["obraInfo", "niveles", "partidas", "catalogoConceptos"].forEach(
+7848-        (key) => localStorage.removeItem(`xdifica_proj_${id}_${key}`),
+7849-      );
+7850-    }
+7851-    setProjectToDelete(null);
+7852-  }, [user, db, setProjects]);
+7853-
+7854-  const handleUpdateMetadata = (id, name, location) => {
+7855-    setProjects((prev) =>
+7856-      prev.map((p) => (p.id === id ? { ...p, name, location } : p)),
+7857-    );
+7858-  };
+7859-
+7860-  if (!authInit) return <LoadingScreen text="Conectando con la nube..." />;
+7861-  if (!loadedProjects || !loadedCatalogo) return <LoadingScreen text="Sincronizando obras..." />;
+7862-
+7863-  if (activeProjectId) {
+7864:    return (
+7865-      <ProjectWorkspace
+7866-        projectId={activeProjectId}
+7867-        onBack={() => setActiveProjectId(null)}
+7868-        onUpdateMetadata={handleUpdateMetadata}
+7869-        user={user}
+7870-        catalogoConceptos={catalogoConceptos}
+7871-        setCatalogoConceptos={setCatalogoConceptos}
+7872-        isCatalogoLoaded={loadedCatalogo}
+7873-        isSavingGlobal={savingProjects || savingCatalogo}
+7874-      />
+7875-    );
+7876-  }
+7877-
+7878:  return (
+7879-    <>
+7880-      <Dashboard
+7881-        projects={projects}
+7882-        onCreate={handleCreateProject}
+7883-        onSelect={setActiveProjectId}
+7884-        onDelete={setProjectToDelete}
+7885-        onCatMaestro={() => setShowGlobalCatalogo(true)}
+7886-      />
+7887-
+7888-      {projectToDelete && (
+7889-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+7890-          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+7891-            <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mb-6 font-black animate-bounce">
+7892-              <AlertCircle size={32} />
+7893-            </div>
+7894-            <h3 className="text-2xl font-black text-slate-800 mb-4 uppercase tracking-tighter">
+7895-              ¿Eliminar obra definitiva?
+7896-            </h3>
+7897-            <p className="text-slate-500 font-bold text-sm mb-8 leading-relaxed uppercase tracking-wider">
+7898-              Esta acción borrará permanentemente todos los conceptos,
+7899-              generadores y datos asociados a esta obra. No se puede deshacer.
+7900-            </p>
+7901-            <div className="grid grid-cols-2 gap-4">
+7902-              <button
+7903-                onClick={() => setProjectToDelete(null)}
+7904-                className="px-6 py-4 rounded-2xl font-black text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all uppercase tracking-widest text-xs"
+7905-              >
+7906-                Cancelar
+7907-              </button>
+7908-              <button
+7909-                onClick={() => handleDeleteProject(projectToDelete)}
+7910-                className="px-6 py-4 bg-red-600 text-white rounded-2xl font-black shadow-lg shadow-red-200 hover:bg-red-700 transition-all uppercase tracking-widest text-xs active:scale-95"
+7911-              >
+7912-                Sí, Eliminar
+7913-              </button>
+7914-            </div>
+7915-          </div>
+7916-        </div>
+7917-      )}
+7918-      {showGlobalCatalogo && (
+7919-        <GlobalCatalogoModal
+7920-          onClose={() => setShowGlobalCatalogo(false)}
+7921-          user={user}
+7922-          catalogoConceptos={catalogoConceptos}
+7923-          setCatalogoConceptos={setCatalogoConceptos}
+7924-        />
+7925-      )}
+7926-    </>
+7927-  );
+7928-}
+7929-
+7930-function GlobalCatalogoModal({
+7931-  onClose,
+7932-  user,
+7933-  catalogoConceptos,
+7934-  setCatalogoConceptos,
+7935-}) {
+7936-  const [catColWidths, setCatColWidths] = usePersistentState(
+7937-    "xdifica_catColWidths_v2",
+7938-    {
+7939-      id: 100,
+7940-      clave: 80,
+7941-      cc: 60,
+7942-      justificacion: 200,
+7943-      descripcion: 300,
+7944-      unidad: 70,
+7945-      action: 50,
+7946-    },
+7947-    user,
+7948-  );
+7949-
+7950-  const resizingRef = useRef(null);
+7951-  const startResizing = (colId, e) => {
+7952-    e.preventDefault();
+7953-    resizingRef.current = { colId, startX: e.pageX, startWidth: catColWidths[colId] || 100 };
+7954-    document.addEventListener("mousemove", handleMouseMove);
+7955-    document.addEventListener("mouseup", stopResizing);
+7956-  };
+7957-  const handleMouseMove = useCallback((e) => {
+7958-    if (!resizingRef.current) return;
+7959-    const { colId, startX, startWidth } = resizingRef.current;
+7960-    const newWidth = Math.max(30, startWidth + (e.pageX - startX));
+7961-    setCatColWidths((p) => ({ ...p, [colId]: newWidth }));
+7962-  }, [setCatColWidths]);
+7963-  const stopResizing = useCallback(() => {
+7964-    document.removeEventListener("mousemove", handleMouseMove);
+7965-    document.removeEventListener("mouseup", stopResizing);
+7966-    resizingRef.current = null;
+7967-  }, [handleMouseMove]);
+7968-
+7969-  const updateCatalogoField = useCallback(
+7970-    (id, field, value) => {
+7971-      setCatalogoConceptos((prev) =>
+7972-        prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)),
+7973-      );
+7974-    },
+7975-    [setCatalogoConceptos],
+7976-  );
+7977-  
+7978-  const updateCatalogoId = useCallback(
+7979-    (oldId, newId) => {
+7980-      if (oldId === newId || !newId.trim()) return;
+7981-      setCatalogoConceptos((prev) =>
+7982-        prev.some((c) => c.id === newId)
+7983-          ? prev
+7984-          : prev.map((c) => (c.id === oldId ? { ...c, id: newId } : c)),
+7985-      );
+7986-    },
+7987-    [setCatalogoConceptos],
+7988-  );
+7989-
+7990:  return (
+7991-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-200">
+7992-      <div className="bg-white rounded-3xl shadow-xl w-full max-w-6xl flex flex-col h-[80vh] overflow-hidden">
+7993-        <div className="bg-teal-800 text-white p-6 flex justify-between items-center shrink-0 border-b border-teal-900">
+7994-          <div className="flex items-center gap-4">
+7995-            <div className="p-3 bg-teal-700 rounded-xl shadow-inner">
+7996-              <ListPlus size={24} className="text-teal-100" />
+7997-            </div>
+7998-            <div>
+7999-              <h2 className="text-xl font-black uppercase tracking-wider leading-tight">
+8000-                Catálogo Maestro de Conceptos (Global)
+8001-              </h2>
+8002-              <p className="text-xs text-teal-200 font-bold uppercase tracking-widest mt-1">
+8003-                Base de datos central disponible en todos los proyectos
+8004-              </p>
+8005-            </div>
+8006-          </div>
+8007-          <button
+8008-            onClick={onClose}
+8009-            className="p-2 bg-teal-700 hover:bg-teal-600 rounded-full transition-colors shadow-sm"
+8010-          >
+8011-            <X size={24} />
+8012-          </button>
+8013-        </div>
+8014-        <div className="flex-1 overflow-x-auto bg-slate-50 p-4 md:p-6">
+8015-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-w-[900px]">
+8016-            <table className="text-sm text-left border-collapse table-fixed w-full">
+8017-              <thead className="bg-slate-800 text-white uppercase tracking-wider select-none font-black sticky top-0 z-30">
+8018-                <tr>
+8019-                  {[
+8020-                    { id: "id", label: "Código" },
+8021-                    { id: "clave", label: "Clave" },
+8022-                    { id: "cc", label: "CC" },
+8023-                    { id: "justificacion", label: "Justificación" },
+8024-                    { id: "descripcion", label: "Descripción del Concepto" },
+8025-                    { id: "unidad", label: "Unidad" },
+8026-                  ].map((col) => (
+8027-                    <th
+8028-                      key={col.id}
+8029-                      className="px-3 py-3 border-r border-slate-700 relative group text-[10px] font-black leading-tight"
+8030-                      style={{ width: catColWidths[col.id] }}
+8031-                    >
+8032-                      <div className="truncate w-full">{col.label}</div>
+8033-                      <div
+8034-                        onMouseDown={(e) => startResizing(col.id, e)}
+8035-                        className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-teal-400 z-40 transition-colors"
+8036-                      />
+8037-                    </th>
+8038-                  ))}
+8039-                  <th
+8040-                    className="px-3 py-3 text-center"
+8041-                    style={{ width: catColWidths.action || 50 }}
+8042-                  ></th>
+8043-                </tr>
+8044-              </thead>
+8045-              <tbody className="divide-y divide-slate-100 text-xs">
+8046-                {catalogoConceptos.length === 0 && (
+8047-                  <tr>
+8048-                    <td
+8049-                      colSpan={7}
+8050-                      className="p-12 text-center text-slate-400 font-bold uppercase tracking-widest"
+8051-                    >
+8052-                      <div className="flex flex-col items-center justify-center gap-3">
+8053-                        <AlertCircle size={32} className="opacity-30" />
+8054-                        <span>El catálogo está vacío. Agrega conceptos base.</span>
+8055-                      </div>
+8056-                    </td>
+8057-                  </tr>
+8058-                )}
+8059-                {catalogoConceptos.map((c, idx) => (
+8060-                  <tr
+8061-                    key={c.id}
+8062-                    className={`transition-colors ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"} hover:bg-teal-50/30`}
+8063-                  >
+8064-                    <td className="p-0 border-r border-slate-200">
+8065-                      <DebouncedCell
+8066-                        value={c.id}
+8067-                        onChange={(v) => updateCatalogoId(c.id, v)}
+8068-                        className="w-full h-full p-3 bg-transparent text-left outline-none font-black text-teal-800 min-w-0 text-[16px]"
+8069-                        placeholder="Ej. PRE-01"
+8070-                      />
+8071-                    </td>
+8072-                    <td className="p-0 border-r border-slate-200">
+8073-                      <DebouncedCell
+8074-                        value={c.clave}
+8075-                        onChange={(v) => updateCatalogoField(c.id, "clave", v)}
+8076-                        className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600"
+8077-                      />
+8078-                    </td>
+8079-                    <td className="p-0 border-r border-slate-200">
+8080-                      <DebouncedCell
+8081-                        value={c.cc}
+8082-                        onChange={(v) => updateCatalogoField(c.id, "cc", v)}
+8083-                        className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600"
+8084-                      />
+8085-                    </td>
+8086-                    <td className="p-0 border-r border-slate-200">
+8087-                      <DebouncedCell
+8088-                        isTextArea
+8089-                        rows={2}
+8090-                        value={c.justificacion}
+8091-                        onChange={(v) => updateCatalogoField(c.id, "justificacion", v)}
+8092-                        className="w-full h-full p-2 bg-transparent outline-none resize-none min-w-0 italic text-slate-500"
+8093-                      />
+8094-                    </td>
+8095-                    <td className="p-0 border-r border-slate-200">
+8096-                      <DebouncedCell
+8097-                        isTextArea
+8098-                        rows={4}
+8099-                        value={c.descripcion}
+8100-                        onChange={(v) => updateCatalogoField(c.id, "descripcion", v)}
+8101-                        className="w-full h-auto min-h-[60px] p-2 bg-transparent outline-none min-w-0 text-slate-700 font-bold uppercase transition-all focus:bg-white"
+8102-                      />
+8103-                    </td>
+8104-                    <td className="p-0 border-r border-slate-200">
+8105-                      <DebouncedCell

@@ -30,6 +30,7 @@ import {
   Copy,
   FileSpreadsheet,
   Search,
+  Calculator,
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -63,10 +64,34 @@ const PESOS_VARILLA = {
   "10": 6.225,
 };
 
+const ANCLAJE_DEFAULT = {
+  "3": "0.25",
+  "4": "0.30",
+  "5": "0.35",
+  "6": "0.40",
+  "8": "0.55",
+  "10": "0.60",
+};
+const ACERO_MULT = {
+  "3": 0.25,
+  "4": 0.3,
+  "5": "0.35",
+  "6": "0.40",
+  "8": "0.55",
+  "10": "0.60",
+};
+
 const getSteelTypesForElement = (t) => {
   t = (t || "").toLowerCase();
-  if (t === "muro" || t === "muro curvo") return ["Vertical", "Horizontal", "Refuerzo Adicional"];
-  if (t === "losa" || t === "losa nervada" || t.includes("zapata"))
+  if (t === "muro" || t === "muro curvo")
+    return ["Vertical", "Horizontal", "Refuerzo Adicional"];
+  if (
+    t === "losa" ||
+    t === "losa nervada" ||
+    t.includes("zapata") ||
+    t === "escalera papelillo" ||
+    t === "rampa de escalera"
+  )
     return ["Longitudinal", "Transversal", "Bastones"];
   if (t === "columna circular" || t === "pilas" || t === "pila")
     return ["Longitudinal", "Zuncho", "Grapas"];
@@ -109,7 +134,18 @@ const exportExcelFile = (content, filename, includeBOM = true) => {
 };
 
 const exportFormattedExcel = (tableHtml, filename) => {
-  const template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style> table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10px; margin-bottom: 20px; } th, td { border: 1px solid #cbd5e1; padding: 6px; vertical-align: middle; } th { font-weight: bold; text-align: center; } </style></head><body>${tableHtml}</body></html>`;
+  const template = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <style> 
+        table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt; margin-bottom: 20px; table-layout: auto; } 
+        th, td { border: 1px solid #cbd5e1; padding: 6px; vertical-align: middle; white-space: normal !important; word-wrap: break-word !important; } 
+        th { font-weight: bold; text-align: center; }
+        .wrap { white-space: normal !important; mso-height-source: auto; }
+      </style>
+    </head>
+    <body>${tableHtml}</body>
+  </html>`;
   const blob = new Blob(["\ufeff" + template], {
     type: "application/vnd.ms-excel;charset=utf-8",
   });
@@ -356,9 +392,11 @@ const DebouncedCell = ({
 }) => {
   const formatValue = (val) => {
     if (val === null || val === undefined) return "";
-    if (type === "number" && step === "0.01" && val !== "") {
+    if (type === "number" && step && val !== "") {
       const parsed = parseFloat(val);
-      return isNaN(parsed) ? "" : parsed.toFixed(2);
+      if (isNaN(parsed)) return "";
+      if (step === "0.001") return parsed.toFixed(3);
+      if (step === "0.01") return parsed.toFixed(2);
     }
     return val;
   };
@@ -368,10 +406,11 @@ const DebouncedCell = ({
   }, [value, type, step]);
   const handleBlur = () => {
     let finalValue = localValue;
-    if (type === "number" && step === "0.01" && finalValue !== "") {
+    if (type === "number" && step && finalValue !== "") {
       const parsed = parseFloat(finalValue);
       if (!isNaN(parsed)) {
-        finalValue = parsed.toFixed(2);
+        if (step === "0.001") finalValue = parsed.toFixed(3);
+        else if (step === "0.01") finalValue = parsed.toFixed(2);
         setLocalValue(finalValue);
       }
     }
@@ -380,7 +419,7 @@ const DebouncedCell = ({
   if (isTextArea)
     return (
       <textarea
-        className={className}
+        className={`resize-y ${className}`}
         rows={rows}
         value={localValue !== undefined ? localValue : ""}
         onChange={(e) => setLocalValue(e.target.value)}
@@ -492,7 +531,7 @@ const GeneratorRow = React.memo(
         <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
           <DebouncedCell
             type="number"
-            step="0.01"
+            step="0.001"
             className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
             value={row.kg_ml}
             onChange={(v) => updateRow(row.id, "kg_ml", v)}
@@ -509,12 +548,22 @@ const GeneratorRow = React.memo(
         </td>
         <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black bg-slate-50/50 text-blue-800 text-[11px]">
           {(() => {
-            const l = parseFloat(row.largo); const lAbs = isNaN(l) || l === 0 ? 0 : Math.abs(l);
-            const a = parseFloat(row.ancho); const aAbs = isNaN(a) || a === 0 ? 0 : Math.abs(a);
-            const h = parseFloat(row.alto);  const hAbs = isNaN(h) || h === 0 ? 0 : Math.abs(h);
-            const k = parseFloat(row.kg_ml); const kAbs = isNaN(k) || k === 0 ? 0 : Math.abs(k);
-            const isActuallyZero = lAbs === 0 && aAbs === 0 && hAbs === 0 && kAbs === 0;
-            const vol = isActuallyZero ? 0 : ((lAbs > 0 ? lAbs : 1) * (aAbs > 0 ? aAbs : 1) * (hAbs > 0 ? hAbs : 1) * (kAbs > 0 ? kAbs : 1));
+            const l = parseFloat(row.largo);
+            const lAbs = isNaN(l) || l === 0 ? 0 : Math.abs(l);
+            const a = parseFloat(row.ancho);
+            const aAbs = isNaN(a) || a === 0 ? 0 : Math.abs(a);
+            const h = parseFloat(row.alto);
+            const hAbs = isNaN(h) || h === 0 ? 0 : Math.abs(h);
+            const k = parseFloat(row.kg_ml);
+            const kAbs = isNaN(k) || k === 0 ? 0 : Math.abs(k);
+            const isActuallyZero =
+              lAbs === 0 && aAbs === 0 && hAbs === 0 && kAbs === 0;
+            const vol = isActuallyZero
+              ? 0
+              : (lAbs > 0 ? lAbs : 1) *
+                (aAbs > 0 ? aAbs : 1) *
+                (hAbs > 0 ? hAbs : 1) *
+                (kAbs > 0 ? kAbs : 1);
             return vol.toLocaleString(undefined, {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
@@ -548,6 +597,648 @@ const GeneratorRow = React.memo(
   },
 );
 
+const POLIN_DATA = {
+  '3"': { dim: '3" x 1.5" x 0.5"', pesos: { "16": 2.08, "14": 2.61 } },
+  '4"': {
+    dim: '4" x 2.0" x 0.75"',
+    pesos: { "16": 2.71, "14": 3.4, "12": 4.8, "10": 5.9 },
+  },
+  '5"': {
+    dim: '5" x 2.0" x 0.75"',
+    pesos: { "16": 3.0, "14": 3.8, "12": 5.3, "10": 6.6 },
+  },
+  '6"': {
+    dim: '6" x 2.0" x 0.75"',
+    pesos: { "16": 4.2, "14": 4.19, "12": 5.86, "10": 7.3 },
+  },
+  '7"': {
+    dim: '7" x 2.75" x 0.75"',
+    pesos: { "16": 4.2, "14": 5.3, "10": 9.2 },
+  },
+  '8"': {
+    dim: '8" x 2.75" x 0.75"',
+    pesos: { "16": 4.5, "14": 5.7, "12": 7.96, "10": 9.9 },
+  },
+  '10"': { dim: '10" x 2.75"', pesos: { "14": 6.49, "12": 9.06, "10": 11.2 } },
+  '12"': {
+    dim: '12" x 3.5" x 0.75"',
+    pesos: { "14": 7.87, "12": 10.99, "10": 13.6 },
+  },
+};
+
+const IPR_DATA = {
+  '4" X 4"': [{ lb: 13.0, kg: 19.3, h: 105.0 }],
+  '5" X 5"': [
+    { lb: 16.0, kg: 23.8, h: 127.0 },
+    { lb: 19.0, kg: 28.1, h: 131.0 },
+  ],
+  '6" X 4"': [
+    { lb: 9.0, kg: 13.4, h: 150.0 },
+    { lb: 12.0, kg: 17.9, h: 153.0 },
+    { lb: 16.0, kg: 23.8, h: 152.0 },
+  ],
+  '6" X 6"': [
+    { lb: 15.0, kg: 22.3, h: 152.0 },
+    { lb: 20.0, kg: 29.8, h: 157.0 },
+    { lb: 25.0, kg: 37.2, h: 162.0 },
+  ],
+  '8" X 4"': [
+    { lb: 10.0, kg: 14.9, h: 200.0 },
+    { lb: 13.0, kg: 19.3, h: 203.0 },
+    { lb: 15.0, kg: 22.3, h: 206.0 },
+  ],
+  '8" X 5 1/4"': [
+    { lb: 14.0, kg: 20.8, h: 203.0 },
+    { lb: 18.0, kg: 26.8, h: 207.0 },
+    { lb: 21.0, kg: 31.3, h: 210.0 },
+  ],
+  '8" X 6 1/2"': [
+    { lb: 24.0, kg: 35.7, h: 201.0 },
+    { lb: 28.0, kg: 41.7, h: 205.0 },
+  ],
+  '8" X 8"': [
+    { lb: 31.0, kg: 46.1, h: 203.0 },
+    { lb: 35.0, kg: 52.1, h: 206.0 },
+    { lb: 67.0, kg: 99.7, h: 229.0 },
+  ],
+  '10" X 4"': [
+    { lb: 12.0, kg: 17.9, h: 251.0 },
+    { lb: 15.0, kg: 22.3, h: 254.0 },
+    { lb: 17.0, kg: 25.3, h: 257.0 },
+    { lb: 19.0, kg: 28.3, h: 260.0 },
+  ],
+  '10" X 5 3/4"': [
+    { lb: 18.0, kg: 23.8, h: 253.0 },
+    { lb: 22.0, kg: 32.7, h: 258.0 },
+    { lb: 26.0, kg: 38.7, h: 262.0 },
+    { lb: 30.0, kg: 44.6, h: 266.0 },
+  ],
+  '10" X 8"': [
+    { lb: 33.0, kg: 49.1, h: 247.0 },
+    { lb: 39.0, kg: 58.0, h: 252.0 },
+    { lb: 45.0, kg: 67.0, h: 257.0 },
+  ],
+  '10" X 10"': [
+    { lb: 49.0, kg: 72.9, h: 253.0 },
+    { lb: 54.0, kg: 80.4, h: 256.0 },
+    { lb: 60.0, kg: 89.3, h: 260.0 },
+    { lb: 68.0, kg: 101.2, h: 264.0 },
+    { lb: 77.0, kg: 114.6, h: 269.0 },
+    { lb: 88.0, kg: 131.0, h: 275.0 },
+    { lb: 100.0, kg: 148.8, h: 282.0 },
+    { lb: 112.0, kg: 166.7, h: 289.0 },
+  ],
+  '12" X 4"': [
+    { lb: 14.0, kg: 20.8, h: 303.0 },
+    { lb: 16.0, kg: 23.8, h: 305.0 },
+    { lb: 19.0, kg: 28.3, h: 309.0 },
+    { lb: 22.0, kg: 32.7, h: 313.0 },
+  ],
+  '12" X 6 1/2"': [
+    { lb: 26.0, kg: 38.7, h: 310.0 },
+    { lb: 30.0, kg: 44.6, h: 313.0 },
+    { lb: 35.0, kg: 52.1, h: 317.0 },
+  ],
+  '12" X 8"': [
+    { lb: 40.0, kg: 59.5, h: 303.0 },
+    { lb: 45.0, kg: 67.0, h: 306.0 },
+    { lb: 50.0, kg: 74.4, h: 310.0 },
+  ],
+  '12" X 10"': [
+    { lb: 53.0, kg: 78.9, h: 306.0 },
+    { lb: 58.0, kg: 86.3, h: 310.0 },
+  ],
+  '12" X 12"': [
+    { lb: 65.0, kg: 96.7, h: 308.0 },
+    { lb: 72.0, kg: 107.1, h: 311.0 },
+    { lb: 79.0, kg: 117.6, h: 314.0 },
+    { lb: 87.0, kg: 129.5, h: 318.0 },
+    { lb: 96.0, kg: 142.9, h: 323.0 },
+    { lb: 106.0, kg: 157.7, h: 327.0 },
+    { lb: 120.0, kg: 178.6, h: 333.0 },
+    { lb: 136.0, kg: 202.37, h: 341.0 },
+    { lb: 152.0, kg: 226.2, h: 348.0 },
+    { lb: 170.0, kg: 253.0, h: 356.0 },
+    { lb: 190.0, kg: 282.8, h: 365.0 },
+  ],
+  '12" X 12 1/2"': [
+    { lb: 210.0, kg: 312.5, h: 374.0 },
+    { lb: 230.0, kg: 342.3, h: 382.0 },
+    { lb: 252.0, kg: 375.0, h: 391.0 },
+    { lb: 279.0, kg: 415.2, h: 403.0 },
+    { lb: 305.0, kg: 453.9, h: 415.0 },
+    { lb: 336.0, kg: 500.0, h: 427.0 },
+  ],
+  '14" X 5"': [
+    { lb: 22.0, kg: 32.7, h: 349.0 },
+    { lb: 26.0, kg: 38.7, h: 353.0 },
+  ],
+  '14" X 6 3/4"': [
+    { lb: 30.0, kg: 44.6, h: 352.0 },
+    { lb: 34.0, kg: 50.6, h: 355.0 },
+    { lb: 38.0, kg: 56.5, h: 358.0 },
+  ],
+  '14" X 8"': [
+    { lb: 43.0, kg: 64.0, h: 347.0 },
+    { lb: 48.0, kg: 71.4, h: 350.0 },
+    { lb: 53.0, kg: 78.9, h: 354.0 },
+  ],
+  '14" X 10"': [
+    { lb: 61.0, kg: 90.8, h: 353.0 },
+    { lb: 68.0, kg: 101.2, h: 357.0 },
+    { lb: 74.0, kg: 110.1, h: 360.0 },
+    { lb: 82.0, kg: 122.0, h: 363.0 },
+  ],
+  '14" X 14 1/2"': [
+    { lb: 90.0, kg: 133.9, h: 356.0 },
+    { lb: 99.0, kg: 147.3, h: 360.0 },
+    { lb: 109.0, kg: 162.2, h: 364.0 },
+    { lb: 120.0, kg: 178.6, h: 368.0 },
+    { lb: 132.0, kg: 196.4, h: 372.0 },
+  ],
+  '14" X 16"': [
+    { lb: 145.0, kg: 215.8, h: 375.0 },
+    { lb: 159.0, kg: 236.6, h: 380.0 },
+    { lb: 176.0, kg: 261.9, h: 387.0 },
+    { lb: 193.0, kg: 287.2, h: 393.0 },
+    { lb: 211.0, kg: 314.0, h: 399.0 },
+    { lb: 233.0, kg: 346.7, h: 407.0 },
+    { lb: 257.0, kg: 382.5, h: 416.0 },
+    { lb: 283.0, kg: 421.1, h: 425.0 },
+    { lb: 311.0, kg: 462.8, h: 435.0 },
+    { lb: 342.0, kg: 509.0, h: 446.0 },
+    { lb: 370.0, kg: 550.5, h: 455.0 },
+    { lb: 398.0, kg: 592.3, h: 465.0 },
+    { lb: 426.0, kg: 634.0, h: 474.0 },
+  ],
+  '16" X 5 1/2"': [
+    { lb: 26.0, kg: 38.7, h: 399.0 },
+    { lb: 31.0, kg: 46.1, h: 403.0 },
+  ],
+  '16" X 7"': [
+    { lb: 36.0, kg: 53.6, h: 403.0 },
+    { lb: 40.0, kg: 59.5, h: 407.0 },
+    { lb: 45.0, kg: 67.0, h: 410.0 },
+    { lb: 50.0, kg: 74.4, h: 413.0 },
+    { lb: 57.0, kg: 84.8, h: 417.0 },
+  ],
+  '16" X 10 1/4"': [
+    { lb: 67.0, kg: 99.7, h: 415.0 },
+    { lb: 77.0, kg: 114.6, h: 420.0 },
+    { lb: 89.0, kg: 132.4, h: 425.0 },
+  ],
+  '18" X 7 1/2"': [{ lb: 71.0, kg: 105.7, h: 469.0 }],
+  '18" X 11"': [
+    { lb: 76.0, kg: 113.1, h: 463.0 },
+    { lb: 86.0, kg: 128.0, h: 467.0 },
+    { lb: 97.0, kg: 144.4, h: 472.0 },
+    { lb: 106.0, kg: 157.7, h: 476.0 },
+    { lb: 119.0, kg: 177.1, h: 482.0 },
+    { lb: 130.0, kg: 193.5, h: 485.0 },
+    { lb: 143.0, kg: 212.8, h: 495.0 },
+    { lb: 158.0, kg: 235.1, h: 501.0 },
+    { lb: 175.0, kg: 260.4, h: 508.0 },
+    { lb: 192.0, kg: 285.7, h: 517.0 },
+    { lb: 211.0, kg: 314.0, h: 525.0 },
+    { lb: 234.0, kg: 348.2, h: 535.0 },
+    { lb: 258.0, kg: 383.9, h: 545.0 },
+    { lb: 283.0, kg: 421.1, h: 555.0 },
+    { lb: 311.0, kg: 462.8, h: 567.0 },
+  ],
+  '21" X 6 1/2"': [
+    { lb: 44.0, kg: 65.5, h: 525.0 },
+    { lb: 50.0, kg: 74.4, h: 529.0 },
+    { lb: 57.0, kg: 84.8, h: 535.0 },
+  ],
+  '21" X 8 1/4"': [
+    { lb: 62.0, kg: 92.3, h: 533.0 },
+    { lb: 68.0, kg: 101.2, h: 537.0 },
+    { lb: 73.0, kg: 108.6, h: 539.0 },
+    { lb: 83.0, kg: 123.5, h: 544.0 },
+    { lb: 93.0, kg: 138.4, h: 549.0 },
+  ],
+  '21" X 12 1/2"': [
+    { lb: 101.0, kg: 150.3, h: 543.0 },
+    { lb: 111.0, kg: 165.2, h: 546.0 },
+    { lb: 122.0, kg: 181.5, h: 551.0 },
+    { lb: 132.0, kg: 196.4, h: 554.0 },
+    { lb: 147.0, kg: 218.8, h: 560.0 },
+    { lb: 166.0, kg: 247.0, h: 571.0 },
+    { lb: 182.0, kg: 270.8, h: 577.0 },
+    { lb: 201.0, kg: 299.1, h: 585.0 },
+  ],
+  '24" X 7"': [{ lb: 55.0, kg: 81.8, h: 599.0 }],
+};
+
+const HSS_DATA = {
+  '4" x 4"': {
+    dim: "101.6 x 101.6",
+    pesos: {
+      '1/8"': 9.61,
+      '3/16"': 14.02,
+      '1/4"': 18.17,
+      '5/16"': 22.07,
+      '3/8"': 25.7,
+      '1/2"': 32.19,
+    },
+  },
+  '4 1/2" x 4 1/2"': {
+    dim: "114.3 x 114.3",
+    pesos: {
+      '1/8"': 10.86,
+      '3/16"': 15.92,
+      '1/4"': 20.7,
+      '5/16"': 25.24,
+      '3/8"': 29.5,
+      '1/2"': 37.25,
+    },
+  },
+  '5" x 5"': {
+    dim: "127.0 x 127.0",
+    pesos: {
+      '1/8"': 12.13,
+      '3/16"': 17.81,
+      '1/4"': 23.25,
+      '5/16"': 28.39,
+      '3/8"': 33.29,
+      '1/2"': 42.31,
+    },
+  },
+  '5 1/2" x 5 1/2"': {
+    dim: "139.7 x 139.7",
+    pesos: { '3/16"': 19.72, '1/4"': 25.77, '5/16"': 31.56, '3/8"': 37.1 },
+  },
+  '6" x 6"': {
+    dim: "152.4 x 152.4",
+    pesos: {
+      '3/16"': 21.62,
+      '1/4"': 28.3,
+      '5/16"': 34.73,
+      '3/8"': 40.89,
+      '1/2"': 52.44,
+      '5/8"': 63.1,
+    },
+  },
+  '7" x 7"': {
+    dim: "177.8 x 177.8",
+    pesos: {
+      '3/16"': 25.42,
+      '1/4"': 33.36,
+      '5/16"': 41.06,
+      '3/8"': 48.48,
+      '1/2"': 62.58,
+    },
+  },
+  '7 1/2" x 7 1/2"': {
+    dim: "190.5 x 190.5",
+    pesos: {
+      '3/16"': 27.31,
+      '1/4"': 35.89,
+      '5/16"': 44.23,
+      '3/8"': 52.28,
+      '1/2"': 67.64,
+    },
+  },
+  '8" x 8"': {
+    dim: "203.2 x 203.2",
+    pesos: {
+      '3/16"': 29.21,
+      '1/4"': 38.42,
+      '5/16"': 47.38,
+      '3/8"': 56.09,
+      '1/2"': 72.7,
+      '5/8"': 88.4,
+    },
+  },
+  '9" x 9"': {
+    dim: "228.6 x 228.6",
+    pesos: {
+      '3/16"': 33.01,
+      '1/4"': 43.5,
+      '5/16"': 53.72,
+      '3/8"': 63.68,
+      '1/2"': 82.83,
+    },
+  },
+  '10" x 10"': {
+    dim: "254.0 x 254.0",
+    pesos: {
+      '3/16"': 36.8,
+      '1/4"': 48.56,
+      '5/16"': 60.05,
+      '3/8"': 71.28,
+      '1/2"': 92.95,
+      '5/8"': 113.8,
+    },
+  },
+  '12" x 12"': {
+    dim: "304.8 x 304.8",
+    pesos: {
+      '3/16"': 44.41,
+      '1/4"': 58.68,
+      '5/16"': 72.71,
+      '3/8"': 86.46,
+      '1/2"': 113.2,
+      '5/8"': 139.1,
+    },
+  },
+  '14" x 14"': {
+    dim: "355.6 x 355.6",
+    pesos: { '5/16"': 85.36, '3/8"': 101.66, '1/2"': 133.46, '5/8"': 166.82 },
+  },
+  '16" x 16"': {
+    dim: "406.4 x 406.4",
+    pesos: { '5/16"': 98.03, '3/8"': 116.85, '1/2"': 153.73, '5/8"': 189.01 },
+  },
+};
+
+const HSS_RECT_DATA = {
+  '8" x 4"': {
+    dim: "203.2 x 101.6",
+    pesos: {
+      '3/16"': 21.64,
+      '1/4"': 28.36,
+      '5/16"': 34.75,
+      '3/8"': 40.98,
+      '1/2"': 52.46,
+    },
+  },
+  '8" x 6"': { dim: "203.2 x 152.4", pesos: { '1/4"': 33.44, '3/8"': 48.52 } },
+  '10" x 4"': {
+    dim: "254.0 x 101.6",
+    pesos: { '3/16"': 25.42, '1/4"': 33.36 },
+  },
+  '10" x 6"': {
+    dim: "254.0 x 152.4",
+    pesos: {
+      '3/16"': 29.34,
+      '1/4"': 38.52,
+      '5/16"': 47.54,
+      '3/8"': 56.23,
+      '1/2"': 72.79,
+    },
+  },
+  '12" x 4"': {
+    dim: "304.8 x 101.6",
+    pesos: { '3/16"': 29.21, '1/4"': 38.42, '3/8"': 56.09 },
+  },
+  '12" x 6"': {
+    dim: "304.8 x 152.4",
+    pesos: { '3/16"': 33.01, '1/4"': 43.5, '3/8"': 63.77 },
+  },
+  '12" x 8"': {
+    dim: "304.8 x 203.2",
+    pesos: { '1/4"': 48.69, '3/8"': 71.31, '1/2"': 92.95, '5/8"': 113.59 },
+  },
+  '14" x 6"': {
+    dim: "355.6 x 152.4",
+    pesos: { '5/16"': 60.05, '3/8"': 71.28 },
+  },
+};
+
+const PTR_DATA = {
+  '1" x 1"': {
+    dim: "25.4 x 25.4",
+    pesos: { "14": 1.46, "12": 1.99, "11": 2.24, "10": 2.49 },
+  },
+  '1 1/4" x 1 1/4"': {
+    dim: "31.75 x 31.75",
+    pesos: { "16": 1.48, "14": 1.87, "12": 2.57, "10": 3.2 },
+  },
+  '1 1/2" x 1 1/2"': {
+    dim: "38.1 x 38.1",
+    pesos: { "16": 1.84, "14": 2.27, "12": 3.12, "11": 3.5, "10": 3.91 },
+  },
+  '2" x 2"': {
+    dim: "50.8 x 50.8",
+    pesos: { "14": 3.02, "12": 4.18, "11": 4.75, "10": 5.31 },
+  },
+  '2 1/2" x 2 1/2"': {
+    dim: "64 x 64",
+    pesos: {
+      "14": 3.8,
+      "12": 5.27,
+      "11": 5.8,
+      "10": 6.17,
+      "9": 6.75,
+      "8": 7.44,
+      '3/16"': 8.31,
+    },
+  },
+  '3" x 3"': {
+    dim: "76 x 76",
+    pesos: {
+      "14": 4.35,
+      "11": 7.06,
+      "10": 7.54,
+      "9": 8.25,
+      "8": 9.1,
+      '3/16"': 10.21,
+    },
+  },
+  '3 1/2" x 3 1/2"': {
+    dim: "89 x 89",
+    pesos: {
+      "14": 5.11,
+      "11": 8.32,
+      "10": 8.89,
+      "9": 9.73,
+      "8": 10.76,
+      '3/16"': 12.11,
+      "5": 13.97,
+      '1/4"': 15.62,
+    },
+  },
+  '4" x 4"': {
+    dim: "102 x 102",
+    pesos: {
+      "14": 5.87,
+      "11": 9.6,
+      "10": 10.24,
+      "9": 11.24,
+      "8": 12.44,
+      '3/16"': 14.0,
+      "5": 16.19,
+      '1/4"': 18.15,
+    },
+  },
+  '4 1/2" x 4 1/2"': {
+    dim: "114 x 114",
+    pesos: {
+      "14": 6.63,
+      "11": 10.24,
+      "10": 11.52,
+      "9": 13.02,
+      "8": 14.03,
+      '3/16"': 15.9,
+      "5": 18.4,
+      '1/4"': 20.67,
+    },
+  },
+  '5" x 5"': {
+    dim: "127 x 127",
+    pesos: {
+      "14": 7.39,
+      "11": 12.13,
+      "10": 13.18,
+      "9": 14.22,
+      "8": 16.13,
+      '3/16"': 17.79,
+      "5": 20.66,
+      '1/4"': 23.21,
+    },
+  },
+};
+
+const CANALES_C_DATA = {
+  '3"': { dim: "76.2 mm", pesos: { "6.10": 6.1, "7.44": 7.44 } },
+  '4"': { dim: "101.6 mm", pesos: { "8.04": 8.04, "10.8": 10.8 } },
+  '5"': { dim: "127.0 mm", pesos: { "9.97": 9.97, "13.39": 13.39 } },
+  '6"': {
+    dim: "152.4 mm",
+    pesos: { "12.20": 12.2, "15.62": 15.62, "19.34": 19.34 },
+  },
+  '8"': {
+    dim: "203.2 mm",
+    pesos: { "17.11": 17.11, "20.46": 20.46, "27.90": 27.9 },
+  },
+  '10"': {
+    dim: "254.0 mm",
+    pesos: { "22.76": 22.76, "30.00": 30.0, "45.00": 45.0 },
+  },
+  '12"': {
+    dim: "304.8 mm",
+    pesos: { "30.80": 30.8, "37.20": 37.2, "44.60": 44.6 },
+  },
+};
+
+const VIGA_IR_DATA = {
+  "152": [12.7, 13.6, 18.0, 24.0, 22.4, 29.7, 37.2],
+  "203": [
+    15.0, 19.4, 22.5, 26.6, 31.2, 35.9, 41.8, 46.2, 52.2, 59.3, 71.4, 86.6,
+    99.8,
+  ],
+  "254": [
+    17.9, 22.3, 25.3, 28.5, 32.9, 38.5, 44.8, 49.2, 58.2, 67.4, 72.9, 80.0,
+    89.1, 101.3, 114.5, 131.2, 148.9, 166.6,
+  ],
+  "305": [
+    21.1, 23.9, 28.2, 32.8, 38.7, 44.5, 52.2, 59.8, 66.9, 74.4, 79.0, 86.1,
+    96.7, 106.9, 117.5, 129.7, 142.8, 158.0, 178.8,
+  ],
+  "356": [
+    32.9, 38.9, 44.8, 50.6, 56.7, 63.8, 71.4, 79.0, 90.7, 101.3, 110.4, 122.1,
+  ],
+  "406": [38.9, 46.2, 53.7, 59.8, 67.4, 74.4],
+};
+
+const PERFILES_OC_DATA = {
+  '20"': { dim: "508.0 mm", pesos: { '0.500"': 229, '0.375"': 173 } },
+  '18"': { dim: "457.2 mm", pesos: { '0.500"': 206, '0.375"': 156 } },
+  '16"': {
+    dim: "406.4 mm",
+    pesos: {
+      '0.625"': 227,
+      '0.500"': 183,
+      '0.438"': 161,
+      '0.375"': 138,
+      '0.312"': 115,
+      '0.250"': 92.8,
+    },
+  },
+  '14"': {
+    dim: "355.6 mm",
+    pesos: {
+      '0.625"': 197,
+      '0.500"': 159,
+      '0.375"': 120,
+      '0.312"': 101,
+      '0.250"': 81.0,
+    },
+  },
+  '12.750"': {
+    dim: "323.8 mm",
+    pesos: { '0.500"': 144, '0.375"': 109, '0.250"': 73.6 },
+  },
+  '10.750"': {
+    dim: "273.0 mm",
+    pesos: { '0.500"': 121, '0.375"': 91.7, '0.250"': 61.9 },
+  },
+  '10"': {
+    dim: "254.0 mm",
+    pesos: {
+      '0.625"': 138,
+      '0.500"': 112,
+      '0.375"': 85.1,
+      '0.312"': 71.2,
+      '0.250"': 57.4,
+      '0.188"': 43.5,
+    },
+  },
+  '9.625"': {
+    dim: "244.5 mm",
+    pesos: {
+      '0.500"': 108,
+      '0.375"': 81.8,
+      '0.312"': 68.5,
+      '0.250"': 55.2,
+      '0.188"': 41.8,
+    },
+  },
+  '8.625"': {
+    dim: "219.1 mm",
+    pesos: {
+      '0.625"': 118,
+      '0.500"': 95.7,
+      '0.375"': 72.9,
+      '0.322"': 63.0,
+      '0.250"': 49.3,
+      '0.188"': 37.4,
+    },
+  },
+  '7.625"': { dim: "193.7 mm", pesos: { '0.375"': 64.1, '0.328"': 56.4 } },
+  '7.500"': {
+    dim: "190.5 mm",
+    pesos: {
+      '0.500"': 82.5,
+      '0.375"': 63.0,
+      '0.312"': 52.9,
+      '0.250"': 42.7,
+      '0.188"': 32.4,
+    },
+  },
+  '7"': { dim: "177.8 mm", pesos: { '0.500"': 76.6, '0.375"': 58.6 } },
+};
+
+const LAMINA_DATA = {
+  "RN-100/35": { pesos: { "26": 4.69, "24": 5.42, "22": 7.6 } },
+  "R-72": {
+    pesos: { "30": 2.44, "28": 2.97, "26": 3.52, "24": 4.06, "22": 5.7 },
+  },
+  "R-101": { pesos: { "28": 3.46, "26": 4.69, "24": 5.42, "22": 7.6 } },
+  "O-725": { pesos: { "30": 2.44, "28": 2.97, "26": 3.52, "24": 4.06 } },
+  "O-100": { pesos: { "28": 3.96, "26": 4.69, "24": 5.42 } },
+  "SECC-25": { pesos: { "24": 5.42, "22": 7.6, "20": 9.06, "18": 11.96 } },
+  "R-90": { pesos: { "26": 5.21, "24": 6.02, "22": 8.44 } },
+};
+
+const PLACAS_DATA = {
+  '1"': 199.21,
+  '15/16"': 186.75,
+  '7/8"': 174.31,
+  '13/16"': 161.85,
+  '3/4"': 149.41,
+  '11/16"': 136.96,
+  '5/8"': 124.51,
+  '9/16"': 112.06,
+  '1/2"': 99.61,
+  '7/16"': 87.15,
+  '3/8"': 74.7,
+  '5/16"': 62.25,
+  '1/4"': 49.8,
+  '3/16"': 37.35,
+};
+
 function ProjectWorkspace({
   projectId,
   onBack,
@@ -568,18 +1259,13 @@ function ProjectWorkspace({
     },
     user,
   );
-  const [niveles, setNiveles, l2, s2] = useProjectState(
-    projectId,
-    "niveles",
-    [{ id: "n1", nombre: "N1 +1.00" }],
-    user,
-  );
   const [partidas, setPartidas, l3, s3] = useProjectState(
     projectId,
     "partidas",
     [],
     user,
   );
+  const [partidaToDelete, setPartidaToDelete] = useState(null);
   const [colWidths, setColWidths, l4, s4] = usePersistentState(
     "xdifica_colWidths_v4",
     {
@@ -648,6 +1334,7 @@ function ProjectWorkspace({
       piezas: 55,
       longitud: 75,
       ganchos: 65,
+      anclaje: 65,
       traslapes: 65,
       mlPza: 70,
       totalMl: 70,
@@ -694,9 +1381,18 @@ function ProjectWorkspace({
   const [showSettings, setShowSettings] = useState(false);
   const [showWallGenerator, setShowWallGenerator] = useState(false);
   const [showStructureGenerator, setShowStructureGenerator] = useState(false);
-  
+  const [showMetalStructureGenerator, setShowMetalStructureGenerator] =
+    useState(false);
+  const [showAnalysisNervadura, setShowAnalysisNervadura] = useState(false);
+  const [nervaduraAnalysisSelection, setNervaduraAnalysisSelection] = useState(
+    [],
+  );
+  const [nervaduraAnalysisM2, setNervaduraAnalysisM2] = useState("");
+
   const [activeWallSubmodal, setActiveWallSubmodal] = useState(null);
   const [activeSteelSubmodal, setActiveSteelSubmodal] = useState(null);
+  const [activeMetalSubmodal, setActiveMetalSubmodal] =
+    useState("Polín Monten");
   const [activeCasetonSubmodal, setActiveCasetonSubmodal] = useState(null);
   const [conceptSelectorFor, setConceptSelectorFor] = useState(null);
   const [conceptSearchTerm, setConceptSearchTerm] = useState("");
@@ -707,6 +1403,7 @@ function ProjectWorkspace({
   const [copiedStructureRow, setCopiedStructureRow] = useState(null);
   const [selectedGeneratorRows, setSelectedGeneratorRows] = useState([]);
   const [selectedStructureRows, setSelectedStructureRows] = useState([]);
+  const [selectedMetalRows, setSelectedMetalRows] = useState([]);
   const [copiedStructureRowsList, setCopiedStructureRowsList] = useState(null);
   const [selectedWallRows, setSelectedWallRows] = useState([]);
   const [copiedWallRowsList, setCopiedWallRowsList] = useState(null);
@@ -715,10 +1412,10 @@ function ProjectWorkspace({
   const [globalReportLevel, setGlobalReportLevel] = useState("todos");
 
   const isFullyLoaded =
-    l1 && l2 && l3 && l4 && l5 && l6 && l7 && l8 && isCatalogoLoaded && l10;
+    l1 && l3 && l4 && l5 && l6 && l7 && l8 && isCatalogoLoaded && l10;
 
-  const isSavingAny = 
-    s1 || s2 || s3 || s4 || s5 || s6 || s7 || s8 || s10 || isSavingGlobal;
+  const isSavingAny =
+    s1 || s3 || s4 || s5 || s6 || s7 || s8 || s10 || isSavingGlobal;
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -731,20 +1428,25 @@ function ProjectWorkspace({
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [isSavingAny]);
 
+  const activePartida = useMemo(
+    () => partidas.find((p) => p.id === activePartidaId),
+    [partidas, activePartidaId],
+  );
+
+  const niveles = useMemo(() => {
+    if (!activePartida) return [];
+    return activePartida.niveles || [{ id: "n1", nombre: "N1 +1.00" }];
+  }, [activePartida]);
+
   useEffect(() => {
     if (
-      l2 &&
+      l3 &&
       niveles.length > 0 &&
       !niveles.find((n) => n.id === activeLevelId)
     ) {
       setActiveLevelId(niveles[0].id);
     }
-  }, [niveles, activeLevelId, l2]);
-
-  const activePartida = useMemo(
-    () => partidas.find((p) => p.id === activePartidaId),
-    [partidas, activePartidaId],
-  );
+  }, [niveles, activeLevelId, l3]);
   const conceptos = activePartida ? activePartida.conceptos : [];
   const generadores = activePartida ? activePartida.generadores : {};
   const murosData = activePartida ? activePartida.muros || {} : {};
@@ -755,6 +1457,11 @@ function ProjectWorkspace({
   const estructuras = Array.isArray(estructurasData)
     ? estructurasData
     : estructurasData[activeLevelId] || [];
+
+  const metalData = activePartida ? activePartida.metal || {} : {};
+  const metalEstructuras = Array.isArray(metalData)
+    ? metalData
+    : metalData[activeLevelId] || [];
 
   const todasLasEstructuras = useMemo(() => {
     if (!activePartida || !activePartida.estructuras) return [];
@@ -781,6 +1488,26 @@ function ProjectWorkspace({
   }, [activePartida, niveles]);
 
   // Actualizadores de estado
+  const updateActiveNiveles = useCallback(
+    (upd) =>
+      setPartidas((prev) =>
+        prev.map((p) =>
+          p.id === activePartidaId
+            ? {
+                ...p,
+                niveles:
+                  typeof upd === "function"
+                    ? upd(p.niveles || [{ id: "n1", nombre: "N1 +1.00" }])
+                    : upd,
+              }
+            : p,
+        ),
+      ),
+    [activePartidaId, setPartidas],
+  );
+
+  const setNiveles = updateActiveNiveles;
+
   const updateActiveConceptos = useCallback(
     (upd) =>
       setPartidas((prev) =>
@@ -855,12 +1582,36 @@ function ProjectWorkspace({
     [activePartidaId, activeLevelId, setPartidas],
   );
 
+  const updateActiveMetalEstructuras = useCallback(
+    (upd) => {
+      setPartidas((prev) =>
+        prev.map((p) => {
+          if (p.id !== activePartidaId) return p;
+          const data = p.metal || {};
+          const isArr = Array.isArray(data);
+          const nextData =
+            typeof upd === "function"
+              ? upd(isArr ? data : data[activeLevelId] || [])
+              : upd;
+          return {
+            ...p,
+            metal: isArr
+              ? { [activeLevelId]: nextData }
+              : { ...data, [activeLevelId]: nextData },
+          };
+        }),
+      );
+    },
+    [activePartidaId, activeLevelId, setPartidas],
+  );
+
   const handleCreatePartida = () =>
     setPartidas((prev) => [
       ...prev,
       {
         id: `P-${Date.now().toString(36).toUpperCase()}`,
         nombre: "NUEVA PARTIDA",
+        niveles: [{ id: "n1", nombre: "N1 +1.00" }],
         conceptos: [],
         generadores: {},
         muros: {},
@@ -868,8 +1619,12 @@ function ProjectWorkspace({
       },
     ]);
   const handleDeletePartida = (id) => {
-    if (window.confirm("¿Eliminar partida?"))
-      setPartidas((prev) => prev.filter((p) => p.id !== id));
+    setPartidaToDelete(id);
+  };
+  const confirmDeletePartida = (id) => {
+    setPartidas((prev) => prev.filter((p) => p.id !== id));
+    if (activePartidaId === id) setActivePartidaId(null);
+    setPartidaToDelete(null);
   };
   const openPartida = (id) => {
     setActivePartidaId(id);
@@ -877,6 +1632,8 @@ function ProjectWorkspace({
     setShowSettings(false);
     setShowWallGenerator(false);
     setShowStructureGenerator(false);
+    setShowMetalStructureGenerator(false);
+    setShowAnalysisNervadura(false);
     setActiveWallSubmodal(null);
     setActiveSteelSubmodal(null);
     setActiveCasetonSubmodal(null);
@@ -931,6 +1688,7 @@ function ProjectWorkspace({
   }, [handleMouseMove]);
 
   const calculateVolumeRow = useCallback((row) => {
+    if (typeof row.overrideTotal === "number") return row.overrideTotal;
     const rawL = parseFloat(row.largo);
     const rawA = parseFloat(row.ancho);
     const rawH = parseFloat(row.alto);
@@ -941,11 +1699,16 @@ function ProjectWorkspace({
     const k = isNaN(rawK) || rawK === 0 ? 0 : Math.abs(rawK);
     const p = parseFloat(row.piezas) || 1;
     if (l === 0 && a === 0 && h === 0 && k === 0) return 0;
-    return (
-      Math.round(
-        (l > 0 ? l : 1) * (a > 0 ? a : 1) * (h > 0 ? h : 1) * (k > 0 ? k : 1) * p * 100,
-      ) / 100
-    );
+
+    let volPza = 0;
+    if (row.isPasos) {
+      volPza = Math.floor(l / 4);
+    } else {
+      volPza =
+        (l > 0 ? l : 1) * (a > 0 ? a : 1) * (h > 0 ? h : 1) * (k > 0 ? k : 1);
+    }
+
+    return Math.round(volPza * p * 100) / 100;
   }, []);
   const getVolumenNivel = (idC, idN) =>
     generadores[idC]?.[idN]?.rows?.reduce(
@@ -1091,24 +1854,35 @@ function ProjectWorkspace({
         const H = isNaN(rawH) || rawH === 0 ? 0 : Math.abs(rawH);
         const K = isNaN(rawK) || rawK === 0 ? 0 : Math.abs(rawK);
         const pzas = isNaN(rawP) || rawP === 0 ? 1 : rawP;
-        
-        const volPza = (L > 0 ? L : 1) * (A > 0 ? A : 1) * (H > 0 ? H : 1) * (K > 0 ? K : 1);
+
+        const volPza =
+          (L > 0 ? L : 1) * (A > 0 ? A : 1) * (H > 0 ? H : 1) * (K > 0 ? K : 1);
         const isActuallyZero = L === 0 && A === 0 && H === 0 && K === 0;
-        const finalVolPza = isActuallyZero ? 0 : volPza;
-        const volTotal = finalVolPza * pzas;
+        let finalVolPza = isActuallyZero ? 0 : volPza;
+        if (r.isPasos) finalVolPza = Math.floor(L / 4);
+        else if (typeof r.overrideVolPza === "number")
+          finalVolPza = r.overrideVolPza;
+        const volTotal =
+          typeof r.overrideTotal === "number"
+            ? r.overrideTotal
+            : finalVolPza * pzas;
 
         const formatDim = (val) => {
           if (isNaN(parseFloat(val)) || parseFloat(val) === 0) return "";
           return parseFloat(val).toFixed(2);
+        };
+        const formatKgMl = (val) => {
+          if (isNaN(parseFloat(val)) || parseFloat(val) === 0) return "";
+          return parseFloat(val).toFixed(3);
         };
         const formatPzas = (val) => {
           if (isNaN(parseFloat(val)) || parseFloat(val) === 0) return "1.00";
           return parseFloat(val).toFixed(2);
         };
         const claveCompleta = [r.eje, r.claveLoc].filter(Boolean).join(" - ");
-        return `${claveCompleta}\\t${formatDim(r.largo)}\\t${formatDim(r.ancho)}\\t${formatDim(r.kg_ml)}\\t${formatDim(r.alto)}\\t${finalVolPza.toFixed(2)}\\t${formatPzas(r.piezas)}\\t${volTotal.toFixed(2)}`;
+        return `${claveCompleta}\t${formatDim(r.largo)}\t${formatDim(r.ancho)}\t${formatKgMl(r.kg_ml)}\t${formatDim(r.alto)}\t${finalVolPza.toFixed(2)}\t${formatPzas(r.piezas)}\t${volTotal.toFixed(2)}`;
       })
-      .join("\\n");
+      .join("\n");
     const textArea = document.createElement("textarea");
     textArea.value = tsvString;
     textArea.style.position = "fixed";
@@ -1167,6 +1941,16 @@ function ProjectWorkspace({
               alto: clipData.alto !== undefined ? clipData.alto : row.alto,
               piezas:
                 clipData.piezas !== undefined ? clipData.piezas : row.piezas,
+              overrideVolPza:
+                clipData.overrideVolPza !== undefined
+                  ? clipData.overrideVolPza
+                  : row.overrideVolPza,
+              overrideTotal:
+                clipData.overrideTotal !== undefined
+                  ? clipData.overrideTotal
+                  : row.overrideTotal,
+              isPasos:
+                clipData.isPasos !== undefined ? clipData.isPasos : row.isPasos,
             };
           }
           return row;
@@ -1507,13 +2291,13 @@ function ProjectWorkspace({
   const calcConcreto = (r) => {
     const tipo = r.tipo?.toLowerCase() || "";
     if (tipo === "nervadura" || tipo === "losa de vigueta") return 0;
-    
+
     if (tipo === "columna circular" || tipo === "pilas" || tipo === "pila") {
       const diam = getEffectiveLargo(r);
       const h = parseFloat(r.alto) || 0;
       const p = parseFloat(r.piezas) || 1;
       const radio = diam / 2;
-      return Math.round((Math.PI * radio * radio * h * p) * 100) / 100;
+      return Math.round(Math.PI * radio * radio * h * p * 100) / 100;
     }
 
     const volBruto =
@@ -1538,7 +2322,14 @@ function ProjectWorkspace({
     else if (t === "columna circular") area = Math.PI * l * h * p;
     else if (t === "trabe" || t === "contratrabe")
       area = (l * a + l * h * 2) * p;
-    else if (t === "losa" || t === "losa nervada" || t === "losa de vigueta") area = l * a * p;
+    else if (
+      t === "losa" ||
+      t === "losa nervada" ||
+      t === "losa de vigueta" ||
+      t === "escalera papelillo" ||
+      t === "rampa de escalera"
+    )
+      area = l * a * p;
     else if (t === "muro" || t === "muro curvo") area = l * h * 2 * p;
     else if (t === "zapata aislada" || t === "zapata corrida")
       area = (l + a) * 2 * p;
@@ -1550,15 +2341,32 @@ function ProjectWorkspace({
       p = parseFloat(r.piezas) || 1,
       t = (r.tipo || "").toLowerCase();
     let front = 0;
-    if (t === "losa" || t === "losa nervada" || t === "losa de vigueta") front = (l + a) * 2 * p;
+    if (
+      t === "losa" ||
+      t === "losa nervada" ||
+      t === "losa de vigueta" ||
+      t === "escalera papelillo" ||
+      t === "rampa de escalera"
+    )
+      front = (l + a) * 2 * p;
     return Math.round(front * 100) / 100;
   };
   const calcAceroItem = (acero) => {
     const p = parseFloat(acero.piezas) || 0,
       l = parseFloat(acero.longitud) || 0,
       g = parseFloat(acero.ganchos) || 0,
+      anc = parseFloat(acero.anclaje) || 0,
       t = parseFloat(acero.traslapes) || 0;
-    const mlPorPieza = l + g * 0.5 + t;
+    const tipo = (acero.tipo || "").toLowerCase();
+    const isEstriboGroup =
+      tipo === "estribos" || tipo === "grapas" || tipo === "zuncho";
+    let mlPorPieza;
+    if (isEstriboGroup) {
+      mlPorPieza = l;
+    } else {
+      const multi = ACERO_MULT[acero.numVarilla] || 0.5;
+      mlPorPieza = l + g * multi + anc + t;
+    }
     const mlTotal = mlPorPieza * p;
     const pesoKgM = PESOS_VARILLA[acero.numVarilla] || 0;
     return { mlPorPieza, ml: mlTotal, kg: mlTotal * pesoKgM };
@@ -1594,11 +2402,23 @@ function ProjectWorkspace({
       aceroEstructuraDetalle = {},
       aceroEstructuraGlobalDetalle = {};
     estructuras.forEach((e) => {
+      let acerosCorregidos = e.aceros || [];
+      const validTypesOptions = getSteelTypesForElement(e.tipo);
+      const validTypes = validTypesOptions.map((t) => t.toLowerCase());
+      if (validTypes.length > 0) {
+        acerosCorregidos = acerosCorregidos.map((a) => {
+          if (!validTypes.includes((a.tipo || "").toLowerCase())) {
+            return { ...a, tipo: validTypesOptions[0] };
+          }
+          return a;
+        });
+      }
+
       const c = calcConcreto(e),
         cim = calcCimbra(e),
         cimFrontera = calcCimbraFrontera(e),
-        aceroKg = calcAceroTotalKg(e.aceros, e.piezas);
-      const tipo = (e.tipo || "Sin Seleccionar").toLowerCase();
+        aceroKg = calcAceroTotalKg(acerosCorregidos, e.piezas);
+      const tipo = (e.tipo || "Sin Seleccionar").toLowerCase().trim();
       const isCimentacion = [
         "zapata aislada",
         "zapata corrida",
@@ -1615,6 +2435,8 @@ function ProjectWorkspace({
         "nervadura",
         "columna",
         "columna circular",
+        "escalera papelillo",
+        "rampa de escalera",
       ].includes(tipo);
       const isEstructuraGpo = [
         "losa",
@@ -1622,6 +2444,8 @@ function ProjectWorkspace({
         "losa de vigueta",
         "trabe",
         "nervadura",
+        "escalera papelillo",
+        "rampa de escalera",
       ].includes(tipo);
 
       if (isCimentacion) {
@@ -1633,23 +2457,51 @@ function ProjectWorkspace({
         totalConcreto += c;
         totalAceroGeneral += aceroKg;
         if (isEstructuraGpo) totalConcretoEstructura += c;
-        else if (tipo === "columna" || tipo === "columna circular") totalConcretoColumnas += c;
-        else if (tipo === "muro" || tipo === "muro curvo") totalConcretoMuros += c;
+        else if (
+          tipo === "columna" ||
+          tipo === "columna circular" ||
+          tipo === "columnas" ||
+          tipo === "columnas circulares"
+        )
+          totalConcretoColumnas += c;
+        else if (
+          tipo === "muro" ||
+          tipo === "muro curvo" ||
+          tipo === "muros" ||
+          tipo === "muros curvos"
+        )
+          totalConcretoMuros += c;
       }
 
       totalCimbra += cim;
       totalCimbraFrontera += cimFrontera;
 
-      const isConcEstGroup = ["losa", "losa nervada", "losa de vigueta", "trabe"].includes(tipo);
+      const isConcEstGroup = [
+        "losa",
+        "losa nervada",
+        "losa de vigueta",
+        "trabe",
+        "escalera papelillo",
+        "rampa de escalera",
+      ].includes(tipo);
 
       let groupOtros = tipo;
-      if (tipo === "columna") groupOtros = "Columnas";
-      else if (tipo === "columna circular") groupOtros = "Columnas Circulares";
+      if (tipo === "columna" || tipo === "columnas") groupOtros = "Columnas";
+      else if (tipo === "columna circular" || tipo === "columnas circulares")
+        groupOtros = "Columnas Circulares";
       else if (tipo === "pilas" || tipo === "pila") groupOtros = "Pilas";
-      else if (tipo === "muro" || tipo === "muro curvo") groupOtros = "Muros";
-      else if (tipo === "losa") groupOtros = "Losas";
+      else if (
+        tipo === "muro" ||
+        tipo === "muro curvo" ||
+        tipo === "muros" ||
+        tipo === "muros curvos"
+      )
+        groupOtros = "Muros";
+      else if (tipo === "losa" || tipo === "losas") groupOtros = "Losas";
       else if (tipo === "losa nervada") groupOtros = "Losas Nervadas";
       else if (tipo === "losa de vigueta") groupOtros = "Losas de Vigueta";
+      else if (tipo === "escalera papelillo" || tipo === "rampa de escalera")
+        groupOtros = "Losas";
       else if (tipo === "trabe") groupOtros = "Trabes";
       else if (tipo === "nervadura") groupOtros = "Nervaduras";
       else if (tipo === "zapata aislada")
@@ -1674,6 +2526,8 @@ function ProjectWorkspace({
             afine: 0,
             relleno: 0,
             casetones: 0,
+            cimbraEscaleraPapelillo: 0,
+            cimbraRampaEscalera: 0,
             obturacionMuros: 0,
             mallaRefuerzo: 0,
             pasosMuros: 0,
@@ -1690,6 +2544,7 @@ function ProjectWorkspace({
             cimbraColumnas_3_6: 0,
             cimbraColumnas_6_9: 0,
             andamiajeTrabes: 0,
+            anclajesDetalle: {},
           };
         }
       };
@@ -1713,17 +2568,33 @@ function ProjectWorkspace({
         totalCasetonesGeneral += volCasetones;
       }
 
-      breakdown[groupOtros].cimbra += cim;
-      breakdown[groupOtros].cimbraFrontera += cimFrontera;
+      if (tipo === "escalera papelillo") {
+        ensureBucket("Losas", "losa");
+        breakdown["Losas"].cimbraFrontera += cimFrontera;
+        breakdown["Losas"].cimbraEscaleraPapelillo += cim;
+      } else if (tipo === "rampa de escalera") {
+        ensureBucket("Losas", "losa");
+        breakdown["Losas"].cimbraFrontera += cimFrontera;
+        breakdown["Losas"].cimbraRampaEscalera += cim;
+      } else {
+        breakdown[groupOtros].cimbra += cim;
+        breakdown[groupOtros].cimbraFrontera += cimFrontera;
+      }
 
       const p = parseFloat(e.piezas) || 1;
       const h = parseFloat(e.alto) || 0;
       const l = getEffectiveLargo(e);
-      if (tipo === "muro" || tipo === "muro curvo") {
+      if (
+        tipo === "muro" ||
+        tipo === "muro curvo" ||
+        tipo === "muros" ||
+        tipo === "muros curvos"
+      ) {
         breakdown[groupOtros].obturacionMuros += cim;
         breakdown[groupOtros].mallaRefuerzo += cim;
         breakdown[groupOtros].m2MuroTotal += l * h * p;
-        
+        breakdown[groupOtros].pasosMuros += Math.floor(l / 4) * p;
+
         if (tipo === "muro curvo") {
           if (h <= 3) {
             breakdown[groupOtros].cimbraMuroCurvo_0_3 += cim;
@@ -1748,8 +2619,9 @@ function ProjectWorkspace({
           }
         }
       } else if (tipo === "columna" || tipo === "columna circular") {
-        breakdown[groupOtros].emplayerColumnas += cim;
-        
+        ensureBucket("Columnas", "columna");
+        breakdown["Columnas"].emplayerColumnas += cim;
+
         if (h <= 3) {
           breakdown[groupOtros].cimbraColumnas_0_3 += cim;
         } else if (h <= 6) {
@@ -1760,7 +2632,7 @@ function ProjectWorkspace({
           breakdown[groupOtros].cimbraColumnas_3_6 += (cim / h) * 3;
           breakdown[groupOtros].cimbraColumnas_6_9 += (cim / h) * (h - 6);
         }
-        
+
         if (h > 3) breakdown[groupOtros].andamiajeColumnas += p;
       } else if (tipo === "trabe") {
         breakdown[groupOtros].andamiajeTrabes += l * p;
@@ -1781,7 +2653,7 @@ function ProjectWorkspace({
         totalAfine += afineItem;
         totalRelleno += rellenoItem;
       }
-      
+
       if (tipo === "pilas" || tipo === "pila") {
         const diam = getEffectiveLargo(e);
         const h = parseFloat(e.alto) || 0;
@@ -1797,7 +2669,7 @@ function ProjectWorkspace({
         totalRelleno += rellenoItem;
       }
 
-      (e.aceros || []).forEach((a) => {
+      (acerosCorregidos || []).forEach((a) => {
         const numVar = a.numVarilla || "-";
         const kgRounded =
           Math.round(calcAceroItem(a).kg * (parseFloat(e.piezas) || 1) * 100) /
@@ -1818,13 +2690,35 @@ function ProjectWorkspace({
         if (!breakdown[groupOtros].aceroDetalle[numVar])
           breakdown[groupOtros].aceroDetalle[numVar] = 0;
         breakdown[groupOtros].aceroDetalle[numVar] += kgRounded;
+
+        const aTipo = (a.tipo || "").toLowerCase().trim();
+        const isAnclajeTarget =
+          aTipo.includes("vertical") ||
+          aTipo.includes("remetido") ||
+          aTipo.includes("longitudinal") ||
+          aTipo.includes("principal") ||
+          aTipo.includes("bastones") ||
+          aTipo === "";
+        if (
+          (tipo === "muro" ||
+            tipo === "muro curvo" ||
+            tipo === "muros" ||
+            tipo === "muros curvos") &&
+          isAnclajeTarget
+        ) {
+          const nv = a.numVarilla || "-";
+          if (!breakdown[groupOtros].anclajesDetalle)
+            breakdown[groupOtros].anclajesDetalle = {};
+          if (!breakdown[groupOtros].anclajesDetalle[nv])
+            breakdown[groupOtros].anclajesDetalle[nv] = 0;
+          breakdown[groupOtros].anclajesDetalle[nv] +=
+            (parseFloat(a.piezas) || 0) * (parseFloat(e.piezas) || 1);
+        }
       });
     });
 
-    Object.values(breakdown).forEach(group => {
-      if (group.tipoOriginal === "muro" || group.tipoOriginal === "muro curvo") {
-        group.pasosMuros = Math.ceil(group.m2MuroTotal / 50);
-      }
+    Object.values(breakdown).forEach((group) => {
+      // Pasos en muros is now calculated element-by-element
     });
 
     return {
@@ -2060,15 +2954,28 @@ function ProjectWorkspace({
     let filtered = [];
     if (tipoKey === "GLOBAL_CIMENTACION")
       filtered = estructuras.filter((e) =>
-        ["zapata aislada", "zapata corrida", "contratrabe", "dado", "pilas", "pila"].includes(
-          (e.tipo || "Sin Seleccionar").toLowerCase(),
-        ),
+        [
+          "zapata aislada",
+          "zapata corrida",
+          "contratrabe",
+          "dado",
+          "pilas",
+          "pila",
+        ].includes((e.tipo || "Sin Seleccionar").toLowerCase()),
       );
     else if (tipoKey === "GLOBAL_ESTRUCTURA_ACERO")
       filtered = estructuras.filter((e) =>
-        ["losa", "losa nervada", "losa de vigueta", "trabe", "nervadura", "columna", "columna circular"].includes(
-          (e.tipo || "Sin Seleccionar").toLowerCase(),
-        ),
+        [
+          "losa",
+          "losa nervada",
+          "losa de vigueta",
+          "trabe",
+          "nervadura",
+          "columna",
+          "columna circular",
+          "escalera papelillo",
+          "rampa de escalera",
+        ].includes((e.tipo || "Sin Seleccionar").toLowerCase()),
       );
     else if (tipoKey === "GLOBAL_ESTRUCTURA")
       filtered = estructuras.filter(
@@ -2090,27 +2997,44 @@ function ProjectWorkspace({
       );
     else if (tipoKey === "Concreto en Estructuras")
       filtered = estructuras.filter((e) =>
-        ["losa", "losa nervada", "losa de vigueta", "trabe", "nervadura"].includes(
-          (e.tipo || "").toLowerCase(),
-        ),
+        [
+          "losa",
+          "losa nervada",
+          "losa de vigueta",
+          "trabe",
+          "nervadura",
+          "escalera papelillo",
+          "rampa de escalera",
+        ].includes((e.tipo || "").toLowerCase()),
       );
     else if (tipoKey === "Columnas")
       filtered = estructuras.filter((e) =>
-        ["columna", "columna circular"].includes(
-          (e.tipo || "").toLowerCase(),
-        ),
+        ["columna", "columna circular"].includes((e.tipo || "").toLowerCase()),
       );
     else if (tipoKey === "Acero en Estructuras")
       filtered = estructuras.filter((e) =>
-        ["losa", "losa nervada", "losa de vigueta", "trabe", "nervadura", "columna", "columna circular"].includes(
-          (e.tipo || "").toLowerCase(),
-        ),
+        [
+          "losa",
+          "losa nervada",
+          "losa de vigueta",
+          "trabe",
+          "nervadura",
+          "columna",
+          "columna circular",
+          "escalera papelillo",
+          "rampa de escalera",
+        ].includes((e.tipo || "").toLowerCase()),
       );
     else if (tipoKey === "Cimentación")
       filtered = estructuras.filter((e) =>
-        ["zapata aislada", "zapata corrida", "contratrabe", "dado", "pilas", "pila"].includes(
-          (e.tipo || "").toLowerCase(),
-        ),
+        [
+          "zapata aislada",
+          "zapata corrida",
+          "contratrabe",
+          "dado",
+          "pilas",
+          "pila",
+        ].includes((e.tipo || "").toLowerCase()),
       );
     else
       filtered = estructuras.filter((e) => {
@@ -2140,11 +3064,21 @@ function ProjectWorkspace({
       rowsToCopy = filtered.flatMap((e) => {
         const base = { eje: e.eje || "", claveLoc: e.clave || "" };
         const pMain = parseFloat(e.piezas) || 1;
+        let lValue = getEffectiveLargo(e);
+        let aValue = e.ancho;
+
+        const t = e.tipo?.toLowerCase() || "";
+        if (t === "columna circular" || t === "pilas" || t === "pila") {
+          const radio = lValue / 2;
+          lValue = Math.PI * radio * radio;
+          aValue = "";
+        }
+
         let rows = [
           {
             ...base,
-            largo: getEffectiveLargo(e),
-            ancho: e.ancho,
+            largo: lValue,
+            ancho: aValue,
             alto: e.alto,
             piezas: e.piezas,
           },
@@ -2169,7 +3103,14 @@ function ProjectWorkspace({
         return rows;
       });
     } else if (
-      ["cimbra", "obturacionMuros", "mallaRefuerzo", "emplayerColumnas", "andamiajeColumnas", "andamiajeTrabes"].includes(material) ||
+      [
+        "cimbra",
+        "obturacionMuros",
+        "mallaRefuerzo",
+        "emplayerColumnas",
+        "andamiajeColumnas",
+        "andamiajeTrabes",
+      ].includes(material) ||
       material.startsWith("cimbraMuros_") ||
       material.startsWith("cimbraColumnas_") ||
       material.startsWith("cimbraMuroCurvo_")
@@ -2181,11 +3122,28 @@ function ProjectWorkspace({
           p = parseFloat(e.piezas) || 1,
           t = (e.tipo || "").toLowerCase(),
           base = { eje: e.eje || "", claveLoc: e.clave || "" };
-        
+
         let shouldInclude = true;
         let outputAlto = h;
 
-        if (material.startsWith("cimbraMuros_") || material.startsWith("cimbraColumnas_")) {
+        if (
+          material.startsWith("cimbraMuros_") &&
+          t !== "muro" &&
+          t !== "muros"
+        )
+          return [];
+        if (
+          material.startsWith("cimbraMuroCurvo_") &&
+          t !== "muro curvo" &&
+          t !== "muros curvos"
+        )
+          return [];
+
+        if (
+          material.startsWith("cimbraMuros_") ||
+          material.startsWith("cimbraColumnas_") ||
+          material.startsWith("cimbraMuroCurvo_")
+        ) {
           if (material.endsWith("0_3")) {
             outputAlto = Math.min(3, h);
             shouldInclude = outputAlto > 0;
@@ -2211,14 +3169,22 @@ function ProjectWorkspace({
           return [
             {
               ...base,
-              claveLoc: base.claveLoc ? base.claveLoc + labelSuffix : labelSuffix.trim(),
+              claveLoc: base.claveLoc
+                ? base.claveLoc + labelSuffix
+                : labelSuffix.trim(),
               largo: l,
               ancho: "",
               alto: outputAlto,
               piezas: p * 2,
             },
           ];
-        if (t === "losa" || t === "losa nervada" || t === "losa de vigueta")
+        if (
+          t === "losa" ||
+          t === "losa nervada" ||
+          t === "losa de vigueta" ||
+          t === "escalera papelillo" ||
+          t === "rampa de escalera"
+        )
           return [
             {
               ...base,
@@ -2233,12 +3199,14 @@ function ProjectWorkspace({
           return [
             {
               ...base,
-              claveLoc: base.claveLoc ? base.claveLoc + labelSuffix : labelSuffix.trim(),
+              claveLoc: base.claveLoc
+                ? base.claveLoc + labelSuffix
+                : labelSuffix.trim(),
               largo: Math.round(Math.PI * l * 100) / 100,
               ancho: "",
               alto: outputAlto,
               piezas: p,
-            }
+            },
           ];
         }
         if (t === "columna" || t === "dado") {
@@ -2246,7 +3214,10 @@ function ProjectWorkspace({
             {
               ...base,
               claveLoc: base.claveLoc
-                ? base.claveLoc + " (Lados X" + (labelSuffix ? labelSuffix : "") + ")"
+                ? base.claveLoc +
+                  " (Lados X" +
+                  (labelSuffix ? labelSuffix : "") +
+                  ")"
                 : "Lados X" + (labelSuffix ? labelSuffix : ""),
               largo: l,
               ancho: "",
@@ -2256,7 +3227,10 @@ function ProjectWorkspace({
             {
               ...base,
               claveLoc: base.claveLoc
-                ? base.claveLoc + " (Lados Y" + (labelSuffix ? labelSuffix : "") + ")"
+                ? base.claveLoc +
+                  " (Lados Y" +
+                  (labelSuffix ? labelSuffix : "") +
+                  ")"
                 : "Lados Y" + (labelSuffix ? labelSuffix : ""),
               largo: a,
               ancho: "",
@@ -2292,7 +3266,9 @@ function ProjectWorkspace({
           return [
             {
               ...base,
-              claveLoc: base.claveLoc ? base.claveLoc + " (Fondo" + labelSuffix + ")" : "Fondo" + labelSuffix,
+              claveLoc: base.claveLoc
+                ? base.claveLoc + " (Fondo" + labelSuffix + ")"
+                : "Fondo" + labelSuffix,
               largo: l,
               ancho: a,
               alto: "",
@@ -2312,40 +3288,46 @@ function ProjectWorkspace({
         return [];
       });
     } else if (material === "pasosMuros") {
-      const areaTotal = filtered.reduce((acc, e) => {
-        if (((e.tipo || "").toLowerCase() === "muro" || (e.tipo || "").toLowerCase() === "muro curvo")) {
+      rowsToCopy = filtered.flatMap((e) => {
+        if (
+          (e.tipo || "").toLowerCase() === "muro" ||
+          (e.tipo || "").toLowerCase() === "muro curvo"
+        ) {
           const l = getEffectiveLargo(e);
-          const h = parseFloat(e.alto) || 0;
           const p = parseFloat(e.piezas) || 1;
-          return acc + (l * h * p);
+          const pasosPiece = Math.floor(l / 4);
+          if (pasosPiece > 0) {
+            return [
+              {
+                eje: e.eje || "",
+                claveLoc: (e.clave ? e.clave + " " : "") + "(Pasos)",
+                largo: l,
+                ancho: "",
+                alto: "",
+                piezas: p,
+                isPasos: true,
+              },
+            ];
+          }
         }
-        return acc;
-      }, 0);
-      const pasos = Math.ceil(areaTotal / 50);
-      rowsToCopy = [
-        {
-          eje: "",
-          claveLoc: "Pasos en Muros",
-          largo: 1,
-          ancho: "",
-          alto: "",
-          piezas: pasos
-        }
-      ];
+        return [];
+      });
     } else if (material === "andamiajeColumnas") {
       rowsToCopy = filtered.flatMap((e) => {
         const h = parseFloat(e.alto) || 0;
         const p = parseFloat(e.piezas) || 1;
         const t = (e.tipo || "").toLowerCase();
-        if (t === "columna" && h > 3) {
-          return [{
-            eje: e.eje || "",
-            claveLoc: (e.clave || "") + " (Andamiaje)",
-            largo: 1,
-            ancho: "",
-            alto: "",
-            piezas: p
-          }];
+        if ((t === "columna" || t === "columna circular") && h > 3) {
+          return [
+            {
+              eje: e.eje || "",
+              claveLoc: (e.clave || "") + " (Andamiaje)",
+              largo: 1,
+              ancho: "",
+              alto: "",
+              piezas: p,
+            },
+          ];
         }
         return [];
       });
@@ -2355,14 +3337,66 @@ function ProjectWorkspace({
         if (t === "trabe") {
           const p = parseFloat(e.piezas) || 1;
           const l = getEffectiveLargo(e);
-          return [{
-            eje: e.eje || "",
-            claveLoc: (e.clave || "") + " (Andamiaje)",
-            largo: l,
-            ancho: "",
-            alto: "",
-            piezas: p
-          }];
+          return [
+            {
+              eje: e.eje || "",
+              claveLoc: (e.clave || "") + " (Andamiaje)",
+              largo: l,
+              ancho: "",
+              alto: "",
+              piezas: p,
+            },
+          ];
+        }
+        return [];
+      });
+    } else if (
+      typeof material === "string" &&
+      material.startsWith("anclajeVar_")
+    ) {
+      const targetNumV = material.split("_")[1] || "";
+      rowsToCopy = filtered.flatMap((e) => {
+        const t = (e.tipo || "").toLowerCase();
+        if (t === "muro" || t === "muro curvo") {
+          const pElem = parseFloat(e.piezas) || 1;
+          let pzas = 0;
+          let acerosCorregidos = e.aceros || [];
+          const validTypesOptions = getSteelTypesForElement(e.tipo);
+          const validTypes = validTypesOptions.map((xt) => xt.toLowerCase());
+          if (validTypes.length > 0) {
+            acerosCorregidos = acerosCorregidos.map((a) => {
+              if (!validTypes.includes((a.tipo || "").toLowerCase())) {
+                return { ...a, tipo: validTypesOptions[0] };
+              }
+              return a;
+            });
+          }
+          acerosCorregidos.forEach((a) => {
+            const aTipo = (a.tipo || "").toLowerCase().trim();
+            const isAnclajeTarget =
+              aTipo.includes("vertical") ||
+              aTipo.includes("remetido") ||
+              aTipo.includes("longitudinal") ||
+              aTipo.includes("principal") ||
+              aTipo.includes("bastones") ||
+              aTipo === "";
+            const nv = (a.numVarilla || "").toString();
+            if (isAnclajeTarget && nv === targetNumV) {
+              pzas += parseFloat(a.piezas) || 0;
+            }
+          });
+          if (pzas > 0) {
+            return [
+              {
+                eje: e.eje || "",
+                claveLoc: (e.clave || "") + ` (Anclaje Varilla #${targetNumV})`,
+                largo: pzas.toFixed(2),
+                ancho: "",
+                alto: "",
+                piezas: pElem,
+              },
+            ];
+          }
         }
         return [];
       });
@@ -2373,7 +3407,13 @@ function ProjectWorkspace({
           p = parseFloat(e.piezas) || 1,
           t = (e.tipo || "").toLowerCase(),
           base = { eje: e.eje || "", claveLoc: e.clave || "" };
-        if (t === "losa" || t === "losa nervada" || t === "losa de vigueta")
+        if (
+          t === "losa" ||
+          t === "losa nervada" ||
+          t === "losa de vigueta" ||
+          t === "escalera papelillo" ||
+          t === "rampa de escalera"
+        )
           return [
             {
               ...base,
@@ -2408,9 +3448,13 @@ function ProjectWorkspace({
           p = parseFloat(e.piezas) || 1,
           base = { eje: e.eje || "", claveLoc: e.clave || "" },
           tipo = (e.tipo || "").toLowerCase();
-          
+
         let excavacionVol = 0;
-        let pLargo = 0, pAncho = 0, eLargo = 0, eAncho = 0, eAlto = 0;
+        let pLargo = 0,
+          pAncho = 0,
+          eLargo = 0,
+          eAncho = 0,
+          eAlto = 0;
         if (tipo === "pilas" || tipo === "pila") {
           const diamExc = l + 1.0;
           const radioExc = diamExc / 2;
@@ -2433,7 +3477,7 @@ function ProjectWorkspace({
 
         const c = calcConcreto(e) / p;
         const rellenoVol = Math.max(0, excavacionVol - c);
-        
+
         if (material === "plantilla") {
           if (tipo === "pilas" || tipo === "pila") return []; // No plantilla for pilas
           return [
@@ -2469,7 +3513,10 @@ function ProjectWorkspace({
               claveLoc: base.claveLoc
                 ? base.claveLoc + " (Excavación)"
                 : "Excavación",
-              largo: tipo === "pilas" || tipo === "pila" ? excavacionVol.toFixed(2) : eLargo,
+              largo:
+                tipo === "pilas" || tipo === "pila"
+                  ? excavacionVol.toFixed(2)
+                  : eLargo,
               ancho: tipo === "pilas" || tipo === "pila" ? "" : eAncho,
               alto: tipo === "pilas" || tipo === "pila" ? "" : eAlto,
               piezas: p,
@@ -2507,8 +3554,19 @@ function ProjectWorkspace({
       });
     } else if (material.startsWith("acero-")) {
       const numVar = material.split("-")[1];
-      rowsToCopy = filtered.flatMap((e) =>
-        (e.aceros || [])
+      rowsToCopy = filtered.flatMap((e) => {
+        let acerosCorregidos = e.aceros || [];
+        const validTypesOptions = getSteelTypesForElement(e.tipo);
+        const validTypes = validTypesOptions.map((xt) => xt.toLowerCase());
+        if (validTypes.length > 0) {
+          acerosCorregidos = acerosCorregidos.map((a) => {
+            if (!validTypes.includes((a.tipo || "").toLowerCase())) {
+              return { ...a, tipo: validTypesOptions[0] };
+            }
+            return a;
+          });
+        }
+        return acerosCorregidos
           .filter((a) => numVar === "total" || a.numVarilla === numVar)
           .map((a) => ({
             eje: e.eje || "",
@@ -2521,8 +3579,8 @@ function ProjectWorkspace({
             kg_ml: PESOS_VARILLA[a.numVarilla || "-"] || 0,
             alto: "",
             piezas: (parseFloat(a.piezas) || 1) * (parseFloat(e.piezas) || 1),
-          })),
-      );
+          }));
+      });
     }
     setClipboardRows(rowsToCopy);
     copyRowsToExcelClipboard(rowsToCopy);
@@ -2538,14 +3596,36 @@ function ProjectWorkspace({
           const newS = { ...s, [field]: value };
           if (["largo", "ancho", "alto", "tipo"].includes(field)) {
             newS.aceros = (newS.aceros || []).map((a) => {
-              const updatedA = { ...a },
-                tAcero = (updatedA.tipo || "").toLowerCase(),
-                tEst = (newS.tipo || "").toLowerCase(),
+              const updatedA = { ...a };
+
+              if (field === "tipo") {
+                const validTypesOptions = getSteelTypesForElement(newS.tipo);
+                const validTypes = validTypesOptions.map((t) =>
+                  t.toLowerCase(),
+                );
+                if (
+                  validTypes.length > 0 &&
+                  !validTypes.includes((updatedA.tipo || "").toLowerCase())
+                ) {
+                  updatedA.tipo = validTypesOptions[0];
+                }
+              }
+
+              let tAcero = (updatedA.tipo || "").toLowerCase();
+              const tEst = (newS.tipo || "").toLowerCase(),
                 l = parseFloat(newS.largo) || 0,
                 an = parseFloat(newS.ancho) || 0,
                 al = parseFloat(newS.alto) || 0;
               if (tAcero === "longitudinal") {
-                if (["columna", "columna circular", "dado", "pilas", "pila"].includes(tEst))
+                if (
+                  [
+                    "columna",
+                    "columna circular",
+                    "dado",
+                    "pilas",
+                    "pila",
+                  ].includes(tEst)
+                )
                   updatedA.longitud = al > 0 ? al.toString() : "";
                 else if (["trabe", "nervadura", "contratrabe"].includes(tEst))
                   updatedA.longitud = l > 0 ? l.toString() : "";
@@ -2578,6 +3658,7 @@ function ProjectWorkspace({
               }
               if (tAcero === "estribos" || tAcero === "zuncho") {
                 updatedA.ganchos = "0";
+                updatedA.anclaje = "0";
                 updatedA.traslapes = "0";
                 let perimetro = 0;
                 if (["columna", "dado"].includes(tEst)) {
@@ -2587,9 +3668,16 @@ function ProjectWorkspace({
                     parseFloat(updatedA.anchoCalc) === parseFloat(s.alto)
                   )
                     updatedA.anchoCalc = al > 0 ? al.toString() : "";
-                } else if (tEst === "columna circular" || tEst === "pilas" || tEst === "pila") {
+                } else if (
+                  tEst === "columna circular" ||
+                  tEst === "pilas" ||
+                  tEst === "pila"
+                ) {
                   perimetro = l * Math.PI;
-                  if (!updatedA.anchoCalc || parseFloat(updatedA.anchoCalc) === parseFloat(s.alto))
+                  if (
+                    !updatedA.anchoCalc ||
+                    parseFloat(updatedA.anchoCalc) === parseFloat(s.alto)
+                  )
                     updatedA.anchoCalc = al > 0 ? al.toString() : "";
                 } else if (
                   ["trabe", "nervadura", "contratrabe"].includes(tEst)
@@ -2676,19 +3764,37 @@ function ProjectWorkspace({
                     "nervadura",
                     "contratrabe",
                   ].includes(tipoEstructura));
+              if (field === "numVarilla") {
+                const oldDefault = ANCLAJE_DEFAULT[a.numVarilla] || "0.30";
+                if (
+                  !a.anclaje ||
+                  parseFloat(a.anclaje) === parseFloat(oldDefault)
+                ) {
+                  updatedA.anclaje = ANCLAJE_DEFAULT[value] || "";
+                }
+              }
               if (field === "tipo") {
                 const l = parseFloat(s.largo) || 0,
                   an = parseFloat(s.ancho) || 0,
                   al = parseFloat(s.alto) || 0;
-                if (tipoAcero === "estribos" || tipoAcero === "zuncho") {
+                if (
+                  tipoAcero === "estribos" ||
+                  tipoAcero === "zuncho" ||
+                  tipoAcero === "grapas"
+                ) {
                   updatedA.ganchos = "0";
+                  updatedA.anclaje = "0";
                   updatedA.traslapes = "0";
                   let perimetro = 0;
                   if (["columna", "dado"].includes(tipoEstructura)) {
                     perimetro = (l + an) * 2;
                     if (!updatedA.anchoCalc && al > 0)
                       updatedA.anchoCalc = al.toString();
-                  } else if (tipoEstructura === "columna circular" || tipoEstructura === "pilas" || tipoEstructura === "pila") {
+                  } else if (
+                    tipoEstructura === "columna circular" ||
+                    tipoEstructura === "pilas" ||
+                    tipoEstructura === "pila"
+                  ) {
                     perimetro = l * Math.PI;
                     if (!updatedA.anchoCalc && al > 0)
                       updatedA.anchoCalc = al.toString();
@@ -2704,7 +3810,15 @@ function ProjectWorkspace({
                   if (perimetro > 0)
                     updatedA.longitud = (perimetro - 0.06 + 0.12).toFixed(2);
                 } else if (tipoAcero === "longitudinal") {
-                  if (["columna", "columna circular", "pilas", "pila", "dado"].includes(tipoEstructura))
+                  if (
+                    [
+                      "columna",
+                      "columna circular",
+                      "pilas",
+                      "pila",
+                      "dado",
+                    ].includes(tipoEstructura)
+                  )
                     updatedA.longitud = al > 0 ? al.toString() : "";
                   else if (
                     ["trabe", "nervadura", "contratrabe"].includes(
@@ -2718,6 +3832,8 @@ function ProjectWorkspace({
                       "zapata corrida",
                       "losa",
                       "losa nervada",
+                      "escalera papelillo",
+                      "rampa de escalera",
                     ].includes(tipoEstructura)
                   ) {
                     updatedA.anchoCalc = an > 0 ? an.toString() : "";
@@ -2730,11 +3846,16 @@ function ProjectWorkspace({
                     "zapata corrida",
                     "losa",
                     "losa nervada",
+                    "escalera papelillo",
+                    "rampa de escalera",
                   ].includes(tipoEstructura)
                 ) {
                   updatedA.anchoCalc = l > 0 ? l.toString() : "";
                   updatedA.longitud = an > 0 ? an.toString() : "";
-                } else if (tipoEstructura === "muro") {
+                } else if (
+                  tipoEstructura === "muro" ||
+                  tipoEstructura === "muro curvo"
+                ) {
                   if (tipoAcero === "vertical") {
                     updatedA.anchoCalc = l > 0 ? l.toString() : "";
                     updatedA.longitud = al > 0 ? al.toString() : "";
@@ -2774,6 +3895,15 @@ function ProjectWorkspace({
                 const longCalc = parseFloat(updatedA.longitud) || 0;
                 updatedA.traslapes =
                   longCalc >= 12 ? Math.floor(longCalc / 12).toString() : "0";
+              }
+              if (
+                tipoAcero === "estribos" ||
+                tipoAcero === "zuncho" ||
+                tipoAcero === "grapas"
+              ) {
+                updatedA.ganchos = "0";
+                updatedA.anclaje = "0";
+                updatedA.traslapes = "0";
               }
               return updatedA;
             }),
@@ -2837,17 +3967,29 @@ function ProjectWorkspace({
         al = parseFloat(s.alto) || 0;
       let defVal = "";
       if (field === "anchoCalc") {
-        if (tipoAcero === "estribos" || tipoAcero === "zuncho") {
-          if (["columna", "columna circular", "pilas", "pila", "dado"].includes(tipoEst))
+        if (
+          tipoAcero === "estribos" ||
+          tipoAcero === "zuncho" ||
+          tipoAcero === "grapas"
+        ) {
+          if (
+            ["columna", "dado", "columna circular", "pilas", "pila"].includes(
+              tipoEst,
+            )
+          )
             defVal = al > 0 ? al.toString() : "";
           else if (["trabe", "nervadura", "contratrabe"].includes(tipoEst))
             defVal = l > 0 ? l.toString() : "";
-        } else if (tipoEst === "muro") {
+        } else if (tipoEst === "muro" || tipoEst === "muro curvo") {
           if (tipoAcero === "vertical") defVal = l > 0 ? l.toString() : "";
           else if (tipoAcero === "horizontal")
             defVal = al > 0 ? al.toString() : "";
         } else if (tipoAcero === "longitudinal") {
-          if (["columna", "columna circular", "pilas", "pila", "dado"].includes(tipoEst))
+          if (
+            ["columna", "columna circular", "pilas", "pila", "dado"].includes(
+              tipoEst,
+            )
+          )
             defVal = al > 0 ? al.toString() : "";
           else if (["trabe", "nervadura", "contratrabe"].includes(tipoEst))
             defVal = l > 0 ? l.toString() : "";
@@ -2857,28 +3999,48 @@ function ProjectWorkspace({
               "zapata corrida",
               "losa",
               "losa nervada",
+              "escalera papelillo",
+              "rampa de escalera",
             ].includes(tipoEst)
           )
             defVal = an > 0 ? an.toString() : "";
         } else if (
           tipoAcero === "transversal" &&
-          ["zapata aislada", "zapata corrida", "losa", "losa nervada"].includes(
-            tipoEst,
-          )
+          [
+            "zapata aislada",
+            "zapata corrida",
+            "losa",
+            "losa nervada",
+            "escalera papelillo",
+            "rampa de escalera",
+          ].includes(tipoEst)
         )
           defVal = l > 0 ? l.toString() : "";
         else if (tipoAcero === "bastones" || tipoAcero === "refuerzo adicional")
           defVal = l > 0 ? l.toString() : "";
       } else if (field === "longitud") {
-        if (tipoAcero === "estribos" || tipoAcero === "zuncho") {
+        if (
+          tipoAcero === "estribos" ||
+          tipoAcero === "zuncho" ||
+          tipoAcero === "grapas"
+        ) {
           let perimetro = 0;
           if (["columna", "dado"].includes(tipoEst)) perimetro = (l + an) * 2;
-          else if (tipoEst === "columna circular" || tipoEst === "pilas" || tipoEst === "pila") perimetro = l * Math.PI;
+          else if (
+            tipoEst === "columna circular" ||
+            tipoEst === "pilas" ||
+            tipoEst === "pila"
+          )
+            perimetro = l * Math.PI;
           else if (["trabe", "nervadura", "contratrabe"].includes(tipoEst))
             perimetro = (an + al) * 2;
           if (perimetro > 0) defVal = (perimetro - 0.06 + 0.12).toFixed(2);
         } else if (tipoAcero === "longitudinal") {
-          if (["columna", "columna circular", "pilas", "pila", "dado"].includes(tipoEst))
+          if (
+            ["columna", "columna circular", "pilas", "pila", "dado"].includes(
+              tipoEst,
+            )
+          )
             defVal = al > 0 ? al.toString() : "";
           else if (
             [
@@ -2889,17 +4051,24 @@ function ProjectWorkspace({
               "zapata corrida",
               "losa",
               "losa nervada",
+              "escalera papelillo",
+              "rampa de escalera",
             ].includes(tipoEst)
           )
             defVal = l > 0 ? l.toString() : "";
         } else if (
           tipoAcero === "transversal" &&
-          ["zapata aislada", "zapata corrida", "losa", "losa nervada"].includes(
-            tipoEst,
-          )
+          [
+            "zapata aislada",
+            "zapata corrida",
+            "losa",
+            "losa nervada",
+            "escalera papelillo",
+            "rampa de escalera",
+          ].includes(tipoEst)
         )
           defVal = an > 0 ? an.toString() : "";
-        else if (tipoEst === "muro") {
+        else if (tipoEst === "muro" || tipoEst === "muro curvo") {
           if (tipoAcero === "vertical") defVal = al > 0 ? al.toString() : "";
           else if (tipoAcero === "horizontal")
             defVal = l > 0 ? l.toString() : "";
@@ -2913,9 +4082,16 @@ function ProjectWorkspace({
           tipoAcero === "bastones" ||
           tipoAcero === "refuerzo adicional" ||
           (tipoAcero === "longitudinal" &&
-            ["columna", "columna circular", "pilas", "pila", "dado", "trabe", "nervadura", "contratrabe"].includes(
-              tipoEst,
-            ));
+            [
+              "columna",
+              "columna circular",
+              "pilas",
+              "pila",
+              "dado",
+              "trabe",
+              "nervadura",
+              "contratrabe",
+            ].includes(tipoEst));
         if (!isPorPiezas) {
           const anchoC = parseFloat(a.anchoCalc),
             sep = parseFloat(a.separacion);
@@ -2923,8 +4099,42 @@ function ProjectWorkspace({
             defVal = (Math.floor(anchoC / (sep / 100)) + 2).toString();
         }
       } else if (field === "traslapes") {
-        const longCalc = parseFloat(a.longitud) || 0;
-        defVal = longCalc >= 12 ? Math.floor(longCalc / 12).toString() : "0";
+        if (
+          tipoAcero === "estribos" ||
+          tipoAcero === "zuncho" ||
+          tipoAcero === "grapas"
+        ) {
+          defVal = "0";
+        } else {
+          const longCalc = parseFloat(a.longitud) || 0;
+          defVal = longCalc >= 12 ? Math.floor(longCalc / 12).toString() : "0";
+        }
+      } else if (field === "anclaje") {
+        if (
+          tipoAcero === "estribos" ||
+          tipoAcero === "zuncho" ||
+          tipoAcero === "grapas"
+        ) {
+          defVal = "0";
+        } else {
+          defVal = ANCLAJE_DEFAULT[a.numVarilla] || "";
+        }
+      } else if (field === "ganchos") {
+        if (
+          tipoAcero === "estribos" ||
+          tipoAcero === "zuncho" ||
+          tipoAcero === "grapas"
+        ) {
+          defVal = "0";
+        } else {
+          defVal = "2";
+        }
+      } else if (field === "separacion") {
+        if (!isPorPiezas) {
+          defVal = "0.20"; // Standard default if none provided
+        } else {
+          defVal = "";
+        }
       }
       if (defVal !== "" && defVal !== a[field])
         updateSteelItem(structId, itemId, field, defVal);
@@ -2939,27 +4149,89 @@ function ProjectWorkspace({
           if (s.id !== structId) return s;
           let tramoSugerido = "";
           const tipo = (s.tipo || "").toLowerCase();
-          if (["columna", "columna circular", "pilas", "pila", "dado"].includes(tipo) && parseFloat(s.alto) > 0)
+
+          const validTypes = getSteelTypesForElement(s.tipo);
+          const initialTipo = validTypes.length > 0 ? validTypes[0] : "";
+          const tAcero = initialTipo.toLowerCase();
+
+          if (
+            ["columna", "columna circular", "pilas", "pila", "dado"].includes(
+              tipo,
+            ) &&
+            parseFloat(s.alto) > 0
+          )
             tramoSugerido = s.alto.toString();
           else if (
-            ["trabe", "nervadura"].includes(tipo) &&
+            [
+              "trabe",
+              "nervadura",
+              "contratrabe",
+              "muro",
+              "muro curvo",
+            ].includes(tipo) &&
             parseFloat(s.largo) > 0
           )
             tramoSugerido = s.largo.toString();
+
+          let initialLongitud = "";
+          let initialAnchoCalc = tramoSugerido;
+          const al = parseFloat(s.alto) || 0,
+            l = parseFloat(s.largo) || 0,
+            an = parseFloat(s.ancho) || 0;
+
+          if (tAcero === "longitudinal") {
+            if (
+              ["columna", "columna circular", "pilas", "pila", "dado"].includes(
+                tipo,
+              )
+            )
+              initialLongitud = al > 0 ? al.toString() : "";
+            else if (["trabe", "nervadura", "contratrabe"].includes(tipo))
+              initialLongitud = l > 0 ? l.toString() : "";
+            else if (
+              [
+                "zapata aislada",
+                "zapata corrida",
+                "losa",
+                "losa nervada",
+                "escalera papelillo",
+                "rampa de escalera",
+              ].includes(tipo)
+            ) {
+              initialAnchoCalc = an > 0 ? an.toString() : "";
+              initialLongitud = l > 0 ? l.toString() : "";
+            }
+          } else if (tAcero === "principal") {
+            initialLongitud = l > 0 ? l.toString() : "";
+            initialAnchoCalc = an > 0 ? an.toString() : "";
+          } else if (
+            tAcero === "vertical" &&
+            ["muro", "muro curvo"].includes(tipo)
+          ) {
+            initialAnchoCalc = l > 0 ? l.toString() : "";
+            initialLongitud = al > 0 ? al.toString() : "";
+          }
+
+          const initialTraslapes =
+            initialLongitud && parseFloat(initialLongitud) >= 12
+              ? Math.floor(parseFloat(initialLongitud) / 12).toString()
+              : "0";
+
           return {
             ...s,
             aceros: [
               ...(s.aceros || []),
               {
                 id: `AC-${Date.now()}`,
-                tipo: "",
+                tipo: initialTipo,
                 numVarilla: "4",
-                anchoCalc: tramoSugerido,
+                anchoCalc: initialAnchoCalc,
                 separacion: "",
                 piezas: "1",
-                longitud: "",
+                longitud: initialLongitud,
                 ganchos: "",
-                traslapes: "",
+                anclaje: ANCLAJE_DEFAULT["4"],
+                traslapes: initialTraslapes,
               },
             ],
           };
@@ -2984,8 +4256,17 @@ function ProjectWorkspace({
     if (!activeSteelSubmodal) return null;
     const structure = estructuras.find((e) => e.id === activeSteelSubmodal);
     if (!structure) return null;
-    const aceros = structure.aceros || [];
+    let aceros = structure.aceros || [];
     const tiposAceroOpciones = getSteelTypesForElement(structure.tipo);
+    const validTypes = tiposAceroOpciones.map((t) => t.toLowerCase());
+    if (validTypes.length > 0) {
+      aceros = aceros.map((a) => {
+        if (!validTypes.includes((a.tipo || "").toLowerCase())) {
+          return { ...a, tipo: tiposAceroOpciones[0] };
+        }
+        return a;
+      });
+    }
     const ePiezas = parseFloat(structure.piezas) || 1;
     const resumenAcero = aceros.reduce((acc, a) => {
       const calc = calcAceroItem(a),
@@ -3077,6 +4358,12 @@ function ProjectWorkspace({
                       </th>
                       <th
                         className="p-1 md:p-2 border-r text-center bg-emerald-50/50 select-none"
+                        style={{ width: steelColWidths.anclaje }}
+                      >
+                        Ancl.
+                      </th>
+                      <th
+                        className="p-1 md:p-2 border-r text-center bg-emerald-50/50 select-none"
                         style={{ width: steelColWidths.traslapes }}
                       >
                         Tras.
@@ -3134,7 +4421,20 @@ function ProjectWorkspace({
                             "nervadura",
                             "contratrabe",
                           ].includes((structure.tipo || "").toLowerCase()),
-                        isPorPiezas = isVinculadoLargo || isLongitudinalManual;
+                        isPorPiezas = isVinculadoLargo || isLongitudinalManual,
+                        isEstriboGroup =
+                          tipoMinuscula === "estribos" ||
+                          tipoMinuscula === "grapas" ||
+                          tipoMinuscula === "zuncho",
+                        isTrabeRel = [
+                          "trabe",
+                          "nervadura",
+                          "contratrabe",
+                        ].includes((structure.tipo || "").toLowerCase()),
+                        isLongOrBast =
+                          tipoMinuscula === "longitudinal" ||
+                          tipoMinuscula === "bastones",
+                        showNAAnchoSep = isTrabeRel && isLongOrBast;
                       return (
                         <tr
                           key={item.id}
@@ -3191,57 +4491,68 @@ function ProjectWorkspace({
                             </select>
                           </td>
                           <td className="p-0 border-r bg-indigo-50/30">
-                            {isLongitudinalManual ? (
-                              <div className="text-center font-black text-slate-400 uppercase cursor-not-allowed">
-                                N/A
-                              </div>
-                            ) : (
-                              <DebouncedCell
-                                type="number"
-                                step="0.01"
-                                value={item.anchoCalc}
-                                onChange={(v) =>
-                                  updateSteelItem(
-                                    structure.id,
-                                    item.id,
-                                    "anchoCalc",
-                                    v,
-                                  )
-                                }
-                                onDoubleClick={() =>
-                                  resetSteelFieldToDefault(
-                                    structure.id,
-                                    item.id,
-                                    "anchoCalc",
-                                  )
-                                }
-                                className="w-full p-1 bg-transparent outline-none text-center font-black text-indigo-900"
-                                placeholder="0.00"
-                              />
-                            )}
+                            <DebouncedCell
+                              type="number"
+                              step="0.01"
+                              value={
+                                showNAAnchoSep || isLongitudinalManual
+                                  ? ""
+                                  : item.anchoCalc
+                              }
+                              disabled={showNAAnchoSep || isLongitudinalManual}
+                              onChange={(v) =>
+                                updateSteelItem(
+                                  structure.id,
+                                  item.id,
+                                  "anchoCalc",
+                                  v,
+                                )
+                              }
+                              onDoubleClick={() =>
+                                resetSteelFieldToDefault(
+                                  structure.id,
+                                  item.id,
+                                  "anchoCalc",
+                                )
+                              }
+                              className={`w-full p-1 bg-transparent outline-none text-center font-black ${isLongitudinalManual || showNAAnchoSep ? "text-indigo-400 italic" : "text-indigo-900"}`}
+                              placeholder={
+                                isLongitudinalManual || showNAAnchoSep
+                                  ? "N/A"
+                                  : "0.00"
+                              }
+                            />
                           </td>
                           <td className="p-0 border-r bg-indigo-50/30">
-                            {isPorPiezas ? (
-                              <div className="text-center font-black text-slate-400 uppercase cursor-not-allowed">
-                                N/A
-                              </div>
-                            ) : (
-                              <DebouncedCell
-                                type="number"
-                                step="0.01"
-                                value={item.separacion}
-                                onChange={(v) =>
-                                  updateSteelItem(
-                                    structure.id,
-                                    item.id,
-                                    "separacion",
-                                    v,
-                                  )
-                                }
-                                className="w-full p-1 bg-transparent outline-none text-center font-black text-indigo-900"
-                                placeholder="-"
-                              />
-                            )}
+                            <DebouncedCell
+                              type="number"
+                              step="0.01"
+                              value={
+                                showNAAnchoSep || isPorPiezas
+                                  ? ""
+                                  : item.separacion
+                              }
+                              disabled={showNAAnchoSep || isPorPiezas}
+                              onChange={(v) =>
+                                updateSteelItem(
+                                  structure.id,
+                                  item.id,
+                                  "separacion",
+                                  v,
+                                )
+                              }
+                              onDoubleClick={() =>
+                                resetSteelFieldToDefault(
+                                  structure.id,
+                                  item.id,
+                                  "separacion",
+                                )
+                              }
+                              className={`w-full p-1 bg-transparent outline-none text-center font-black ${isPorPiezas || showNAAnchoSep ? "text-slate-400 italic" : "text-indigo-900"}`}
+                              placeholder={
+                                isPorPiezas || showNAAnchoSep ? "N/A" : "-"
+                              }
+                            />
                           </td>
                           <td className="p-0 border-r bg-blue-50/30">
                             <DebouncedCell
@@ -3268,42 +4579,37 @@ function ProjectWorkspace({
                             />
                           </td>
                           <td className="p-0 border-r bg-blue-50/30">
-                            {isLongitudinalManual || isVinculadoLargo ? (
-                              <div className="text-center font-black text-blue-800/60 bg-blue-50/50">
-                                {item.longitud
-                                  ? parseFloat(item.longitud).toFixed(2)
-                                  : "0.00"}
-                              </div>
-                            ) : (
-                              <DebouncedCell
-                                type="number"
-                                step="0.01"
-                                value={item.longitud}
-                                onChange={(v) =>
-                                  updateSteelItem(
-                                    structure.id,
-                                    item.id,
-                                    "longitud",
-                                    v,
-                                  )
-                                }
-                                onDoubleClick={() =>
-                                  resetSteelFieldToDefault(
-                                    structure.id,
-                                    item.id,
-                                    "longitud",
-                                  )
-                                }
-                                className="w-full p-1 bg-transparent outline-none text-center font-black text-blue-800"
-                                placeholder="0.00"
-                              />
-                            )}
+                            <DebouncedCell
+                              type="number"
+                              step="0.01"
+                              value={item.longitud}
+                              onChange={(v) =>
+                                updateSteelItem(
+                                  structure.id,
+                                  item.id,
+                                  "longitud",
+                                  v,
+                                )
+                              }
+                              onDoubleClick={() =>
+                                resetSteelFieldToDefault(
+                                  structure.id,
+                                  item.id,
+                                  "longitud",
+                                )
+                              }
+                              className={`w-full p-1 bg-transparent outline-none text-center font-black ${isLongitudinalManual || isVinculadoLargo ? "text-blue-600 italic" : "text-blue-800"}`}
+                              placeholder="0.00"
+                            />
                           </td>
-                          <td className="p-0 border-r bg-emerald-50/30">
+                          <td
+                            className={`p-0 border-r ${isEstriboGroup ? "bg-slate-100 cursor-not-allowed" : "bg-emerald-50/30"}`}
+                          >
                             <DebouncedCell
                               type="number"
                               step="1"
-                              value={item.ganchos}
+                              value={isEstriboGroup ? "" : item.ganchos}
+                              disabled={isEstriboGroup}
                               onChange={(v) =>
                                 updateSteelItem(
                                   structure.id,
@@ -3312,15 +4618,52 @@ function ProjectWorkspace({
                                   v,
                                 )
                               }
-                              className="w-full p-1 bg-transparent outline-none text-center font-black text-emerald-800"
-                              placeholder="0"
+                              onDoubleClick={() =>
+                                resetSteelFieldToDefault(
+                                  structure.id,
+                                  item.id,
+                                  "ganchos",
+                                )
+                              }
+                              className={`w-full p-1 bg-transparent outline-none text-center font-black ${isEstriboGroup ? "text-slate-300 italic" : "text-emerald-800"}`}
+                              placeholder={isEstriboGroup ? "N/A" : "0"}
                             />
                           </td>
-                          <td className="p-0 border-r bg-emerald-50/30">
+                          <td
+                            className={`p-0 border-r ${isEstriboGroup ? "bg-slate-100 cursor-not-allowed" : "bg-emerald-50/30"}`}
+                          >
                             <DebouncedCell
                               type="number"
                               step="0.01"
-                              value={item.traslapes}
+                              value={isEstriboGroup ? "" : item.anclaje}
+                              disabled={isEstriboGroup}
+                              onChange={(v) =>
+                                updateSteelItem(
+                                  structure.id,
+                                  item.id,
+                                  "anclaje",
+                                  v,
+                                )
+                              }
+                              onDoubleClick={() =>
+                                resetSteelFieldToDefault(
+                                  structure.id,
+                                  item.id,
+                                  "anclaje",
+                                )
+                              }
+                              className={`w-full p-1 bg-transparent outline-none text-center font-black ${isEstriboGroup ? "text-slate-300 italic" : "text-emerald-800"}`}
+                              placeholder={isEstriboGroup ? "N/A" : "0.00"}
+                            />
+                          </td>
+                          <td
+                            className={`p-0 border-r ${isEstriboGroup ? "bg-slate-100 cursor-not-allowed" : "bg-emerald-50/30"}`}
+                          >
+                            <DebouncedCell
+                              type="number"
+                              step="0.01"
+                              value={isEstriboGroup ? "" : item.traslapes}
+                              disabled={isEstriboGroup}
                               onChange={(v) =>
                                 updateSteelItem(
                                   structure.id,
@@ -3336,8 +4679,8 @@ function ProjectWorkspace({
                                   "traslapes",
                                 )
                               }
-                              className="w-full p-1 bg-transparent outline-none text-center font-black text-emerald-800"
-                              placeholder="0.00"
+                              className={`w-full p-1 bg-transparent outline-none text-center font-black ${isEstriboGroup ? "text-slate-300 italic" : "text-emerald-800"}`}
+                              placeholder={isEstriboGroup ? "N/A" : "0.00"}
                             />
                           </td>
                           <td className="p-1 border-r text-center font-black text-slate-500 bg-slate-50">
@@ -3387,7 +4730,7 @@ function ProjectWorkspace({
                           </span>
                           <div className="flex flex-col items-end">
                             <span className="text-[10px] font-bold text-slate-400 uppercase">
-                              ({PESOS_VARILLA[num] || 0} kg/m)
+                              ({(PESOS_VARILLA[num] || 0).toFixed(3)} kg/m)
                             </span>
                             <span className="text-[8px] font-black text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded mt-0.5">
                               X {ePiezas} PZAS
@@ -3937,8 +5280,6 @@ function ProjectWorkspace({
     );
   };
 
-  
-
   const renderGeneratorModal = () => {
     if (!editingModal) return null;
     const { concepto, nivel } = editingModal;
@@ -4117,7 +5458,53 @@ function ProjectWorkspace({
                       <th
                         className="p-2 text-center"
                         style={{ width: genColWidths.action }}
-                      ></th>
+                      >
+                        <div className="flex justify-center items-center gap-1">
+                          <button
+                            onClick={handleCopyRows}
+                            className={`p-1 rounded transition-colors ${selectedGeneratorRows.length > 0 ? "text-blue-600 hover:bg-blue-100" : "text-slate-300 cursor-not-allowed"}`}
+                            disabled={selectedGeneratorRows.length === 0}
+                            title="Copiar Seleccionados"
+                          >
+                            <Copy size={14} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (selectedGeneratorRows.length > 0) {
+                                updateActiveGeneradores((prev) => {
+                                  const currentConcept =
+                                    prev[editingModal.concepto.id] || {};
+                                  const currentLevel =
+                                    currentConcept[editingModal.nivel.id];
+                                  if (!currentLevel) return prev;
+
+                                  return {
+                                    ...prev,
+                                    [editingModal.concepto.id]: {
+                                      ...currentConcept,
+                                      [editingModal.nivel.id]: {
+                                        ...currentLevel,
+                                        rows: currentLevel.rows.filter(
+                                          (r) =>
+                                            !selectedGeneratorRows.includes(
+                                              r.id,
+                                            ),
+                                        ),
+                                      },
+                                    },
+                                  };
+                                });
+                                setSelectedGeneratorRows([]);
+                              }
+                            }}
+                            className={`p-1 rounded transition-colors ${selectedGeneratorRows.length > 0 ? "text-red-500 hover:bg-red-50" : "text-slate-300 cursor-not-allowed"}`}
+                            disabled={selectedGeneratorRows.length === 0}
+                            title="Borrar Seleccionados"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -4272,19 +5659,26 @@ function ProjectWorkspace({
                   key={c.id}
                   className="mb-8 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden break-inside-avoid"
                 >
-                  <div className="bg-slate-800 text-white p-3 flex justify-between items-center rounded-t-xl">
-                    <div className="flex-1 flex items-center justify-between">
-                      <h4 className="font-black text-[12px] tracking-widest w-1/3 text-left">
-                        {c.clave || c.id}
-                      </h4>
-                      <p className="text-[15px] text-slate-300 font-bold uppercase text-center w-1/3 px-2">
-                        {c.descripcion}
-                      </p>
-                      <div className="text-right w-1/3">
-                        <span className="block text-[12px] font-black text-slate-400 uppercase">
+                  <div className="bg-slate-800 text-white p-6 relative rounded-t-xl overflow-hidden shadow-inner">
+                    <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
+                      <div className="flex flex-col items-center md:items-start bg-slate-700/30 p-3 rounded-2xl border border-slate-700/50 min-w-[120px]">
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.25em] mb-1">
+                          Concepto
+                        </span>
+                        <h4 className="font-black text-sm tracking-wider text-blue-400">
+                          {c.clave || c.id}
+                        </h4>
+                      </div>
+                      <div className="flex-1 flex items-center justify-center py-2 px-4">
+                        <p className="text-[11px] md:text-[12px] leading-tight text-white font-black uppercase text-center max-w-2xl drop-shadow-sm">
+                          {c.descripcion}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-center md:items-end bg-slate-700/30 p-3 rounded-2xl border border-slate-700/50 min-w-[120px]">
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.25em] mb-1">
                           Unidad
                         </span>
-                        <span className="font-black text-blue-400 text-[18px]">
+                        <span className="font-black text-lg text-blue-400 leading-none">
                           {c.unidad}
                         </span>
                       </div>
@@ -4333,49 +5727,68 @@ function ProjectWorkspace({
                             </tr>
                           )}
                           {rows.map((r) => {
-                            const l = parseFloat(r.largo); const lAbs = isNaN(l) || l === 0 ? 0 : Math.abs(l);
-                            const a = parseFloat(r.ancho); const aAbs = isNaN(a) || a === 0 ? 0 : Math.abs(a);
-                            const h = parseFloat(r.alto); const hAbs = isNaN(h) || h === 0 ? 0 : Math.abs(h);
-                            const k = parseFloat(r.kg_ml); const kAbs = isNaN(k) || k === 0 ? 0 : Math.abs(k);
-                            const isActuallyZero = lAbs === 0 && aAbs === 0 && hAbs === 0 && kAbs === 0;
-                            const volPza = isActuallyZero ? 0 : ((lAbs > 0 ? lAbs : 1) * (aAbs > 0 ? aAbs : 1) * (hAbs > 0 ? hAbs : 1) * (kAbs > 0 ? kAbs : 1));
+                            const l = parseFloat(r.largo);
+                            const lAbs = isNaN(l) || l === 0 ? 0 : Math.abs(l);
+                            const a = parseFloat(r.ancho);
+                            const aAbs = isNaN(a) || a === 0 ? 0 : Math.abs(a);
+                            const h = parseFloat(r.alto);
+                            const hAbs = isNaN(h) || h === 0 ? 0 : Math.abs(h);
+                            const k = parseFloat(r.kg_ml);
+                            const kAbs = isNaN(k) || k === 0 ? 0 : Math.abs(k);
+                            const isActuallyZero =
+                              lAbs === 0 &&
+                              aAbs === 0 &&
+                              hAbs === 0 &&
+                              kAbs === 0;
+                            let calculatedVolPza = isActuallyZero
+                              ? 0
+                              : (lAbs > 0 ? lAbs : 1) *
+                                (aAbs > 0 ? aAbs : 1) *
+                                (hAbs > 0 ? hAbs : 1) *
+                                (kAbs > 0 ? kAbs : 1);
+                            if (r.isPasos)
+                              calculatedVolPza = Math.floor(lAbs / 4);
+                            const volPza =
+                              typeof r.overrideVolPza === "number"
+                                ? r.overrideVolPza
+                                : calculatedVolPza;
                             return (
-                            <tr key={r.id} className="hover:bg-slate-50">
-                              <td className="p-2 border-r border-slate-100 font-bold uppercase">
-                                {r.eje} {r.claveLoc}
-                              </td>
-                              <td className="p-2 border-r border-slate-100 text-center">
-                                {r.largo
-                                  ? parseFloat(r.largo).toFixed(2)
-                                  : "0.00"}
-                              </td>
-                              <td className="p-2 border-r border-slate-100 text-center">
-                                {r.ancho
-                                  ? parseFloat(r.ancho).toFixed(2)
-                                  : "0.00"}
-                              </td>
-                              <td className="p-2 border-r border-slate-100 text-center">
-                                {r.kg_ml
-                                  ? parseFloat(r.kg_ml).toFixed(2)
-                                  : "0.00"}
-                              </td>
-                              <td className="p-2 border-r border-slate-100 text-center">
-                                {r.alto
-                                  ? parseFloat(r.alto).toFixed(2)
-                                  : "0.00"}
-                              </td>
-                              <td className="p-2 border-r border-slate-100 text-center">
-                                {volPza.toFixed(2)}
-                              </td>
-                              <td className="p-2 border-r border-slate-100 text-center font-bold">
-                                {r.piezas
-                                  ? parseFloat(r.piezas).toFixed(2)
-                                  : "1.00"}
-                              </td>
-                              <td className="p-2 text-right font-black text-slate-700">
-                                {calculateVolumeRow(r).toFixed(2)}
-                              </td>
-                            </tr>
+                              <tr key={r.id} className="hover:bg-slate-50">
+                                <td className="p-2 border-r border-slate-100 font-bold uppercase">
+                                  {r.eje} {r.claveLoc}
+                                </td>
+                                <td className="p-2 border-r border-slate-100 text-center">
+                                  {r.largo
+                                    ? parseFloat(r.largo).toFixed(2)
+                                    : "0.00"}
+                                </td>
+                                <td className="p-2 border-r border-slate-100 text-center">
+                                  {r.ancho
+                                    ? parseFloat(r.ancho).toFixed(2)
+                                    : "0.00"}
+                                </td>
+                                <td className="p-2 border-r border-slate-100 text-center">
+                                  {r.kg_ml
+                                    ? parseFloat(r.kg_ml).toFixed(3)
+                                    : "0.000"}
+                                </td>
+                                <td className="p-2 border-r border-slate-100 text-center">
+                                  {r.alto
+                                    ? parseFloat(r.alto).toFixed(2)
+                                    : "0.00"}
+                                </td>
+                                <td className="p-2 border-r border-slate-100 text-center">
+                                  {volPza.toFixed(2)}
+                                </td>
+                                <td className="p-2 border-r border-slate-100 text-center font-bold">
+                                  {r.piezas
+                                    ? parseFloat(r.piezas).toFixed(2)
+                                    : "1.00"}
+                                </td>
+                                <td className="p-2 text-right font-black text-slate-700">
+                                  {calculateVolumeRow(r).toFixed(2)}
+                                </td>
+                              </tr>
                             );
                           })}
                         </tbody>
@@ -4444,7 +5857,7 @@ function ProjectWorkspace({
                          <col width="145" />
                       </colgroup>
                       <thead>`;
-                  
+
                   if (isFirstTable) {
                     html += `
                          <tr><td colspan="9" style="height: 10px; border: none;"></td></tr>
@@ -4464,7 +5877,7 @@ function ProjectWorkspace({
                             <td style="background-color: #000000; color: #ffffff; padding: 4px 8px; text-align: left; font-size: 10pt; font-weight: bold; border-top: 2px solid #000000; border-left: 2px solid #000000; border-bottom: 1px solid #000000; border-right: 1px solid #ffffff;">
                                CÓD: ${cLabel}
                             </td>
-                            <td colspan="5" style="background-color: #000000; color: #ffffff; padding: 4px 8px; text-align: center; font-size: 10pt; font-weight: bold; border-top: 2px solid #000000; border-bottom: 1px solid #000000; border-right: 1px solid #ffffff;">
+                            <td colspan="5" style="background-color: #000000; color: #ffffff; padding: 10px; text-align: center; font-size: 10pt; font-weight: bold; border-top: 2px solid #000000; border-bottom: 1px solid #000000; border-right: 1px solid #ffffff; white-space: normal; word-wrap: break-word; mso-height-source: auto;">
                                ${desc}
                             </td>
                             <td colspan="2" style="background-color: #000000; color: #5B9BD5; padding: 4px 8px; text-align: center; font-size: 11pt; font-weight: bold; border-top: 2px solid #000000; border-right: 2px solid #000000; border-bottom: 1px solid #000000;">
@@ -4489,18 +5902,33 @@ function ProjectWorkspace({
                     html += `<tr><td style="border: none;"></td><td colspan="8" style="padding: 10px; text-align: center; color: #808080; border-left: 2px solid #000000; border-right: 2px solid #000000; border-bottom: 1px solid #D9D9D9;">Sin filas</td></tr>`;
                   } else {
                     rows.forEach((r, i) => {
-                      const l = parseFloat(r.largo); const lAbs = isNaN(l) || l === 0 ? 0 : Math.abs(l);
-                      const a = parseFloat(r.ancho); const aAbs = isNaN(a) || a === 0 ? 0 : Math.abs(a);
-                      const h = parseFloat(r.alto); const hAbs = isNaN(h) || h === 0 ? 0 : Math.abs(h);
-                      const k = parseFloat(r.kg_ml); const kAbs = isNaN(k) || k === 0 ? 0 : Math.abs(k);
-                      const isActuallyZero = lAbs === 0 && aAbs === 0 && hAbs === 0 && kAbs === 0;
-                      const volPza = isActuallyZero ? 0 : ((lAbs > 0 ? lAbs : 1) * (aAbs > 0 ? aAbs : 1) * (hAbs > 0 ? hAbs : 1) * (kAbs > 0 ? kAbs : 1));
+                      const l = parseFloat(r.largo);
+                      const lAbs = isNaN(l) || l === 0 ? 0 : Math.abs(l);
+                      const a = parseFloat(r.ancho);
+                      const aAbs = isNaN(a) || a === 0 ? 0 : Math.abs(a);
+                      const h = parseFloat(r.alto);
+                      const hAbs = isNaN(h) || h === 0 ? 0 : Math.abs(h);
+                      const k = parseFloat(r.kg_ml);
+                      const kAbs = isNaN(k) || k === 0 ? 0 : Math.abs(k);
+                      const isActuallyZero =
+                        lAbs === 0 && aAbs === 0 && hAbs === 0 && kAbs === 0;
+                      let calculatedVolPza = isActuallyZero
+                        ? 0
+                        : (lAbs > 0 ? lAbs : 1) *
+                          (aAbs > 0 ? aAbs : 1) *
+                          (hAbs > 0 ? hAbs : 1) *
+                          (kAbs > 0 ? kAbs : 1);
+                      if (r.isPasos) calculatedVolPza = Math.floor(lAbs / 4);
+                      const volPza =
+                        typeof r.overrideVolPza === "number"
+                          ? r.overrideVolPza
+                          : calculatedVolPza;
                       html += `<tr>
                             <td style="border: none;"></td>
                             <td style="padding: 4px; border: 1px solid #D9D9D9; border-left: 2px solid #000000; text-transform: uppercase; text-align: left; color: #000000; font-size: 10pt;">${r.eje} ${r.claveLoc}</td>
                             <td style="padding: 4px; border: 1px solid #D9D9D9; text-align: center; color: #000000; font-size: 10pt; mso-number-format:'0\\.00';">${renderExVal(r.largo)}</td>
                             <td style="padding: 4px; border: 1px solid #D9D9D9; text-align: center; color: #000000; font-size: 10pt; mso-number-format:'0\\.00';">${renderExVal(r.ancho)}</td>
-                            <td style="padding: 4px; border: 1px solid #D9D9D9; text-align: center; color: #000000; font-size: 10pt; mso-number-format:'0\\.00';">${renderExVal(r.kg_ml)}</td>
+                            <td style="padding: 4px; border: 1px solid #D9D9D9; text-align: center; color: #000000; font-size: 10pt; mso-number-format:'0\\.000';">${r.kg_ml ? parseFloat(r.kg_ml).toFixed(3) : "-  "}</td>
                             <td style="padding: 4px; border: 1px solid #D9D9D9; text-align: center; color: #000000; font-size: 10pt; mso-number-format:'0\\.00';">${renderExVal(r.alto)}</td>
                             <td style="padding: 4px; border: 1px solid #D9D9D9; text-align: center; color: #000000; font-size: 10pt; mso-number-format:'0\\.00';">${volPza.toFixed(2)}</td>
                             <td style="padding: 4px; border: 1px solid #D9D9D9; text-align: center; font-weight: bold; color: #000000; font-size: 10pt; mso-number-format:'0\\.00';">${r.piezas ? parseFloat(r.piezas).toFixed(2) : "1.00"}</td>
@@ -4561,7 +5989,7 @@ function ProjectWorkspace({
 
     estructurasConAcero.forEach((e) => {
       const ePiezas = parseFloat(e.piezas) || 1;
-      const tipo = (e.tipo || "").toLowerCase();
+      const tipo = (e.tipo || "").toLowerCase().trim();
       const isCimentacion = [
         "zapata aislada",
         "zapata corrida",
@@ -4570,7 +5998,11 @@ function ProjectWorkspace({
         "pilas",
         "pila",
       ].includes(tipo);
-      const isMuro = tipo === "muro";
+      const isMuro =
+        tipo === "muro" ||
+        tipo === "muro curvo" ||
+        tipo === "muros" ||
+        tipo === "muros curvos";
 
       e.aceros.forEach((a) => {
         const calc = calcAceroItem(a);
@@ -4582,9 +6014,7 @@ function ProjectWorkspace({
           resumenCimentacion[numVar] =
             (resumenCimentacion[numVar] || 0) + kgTotalItem;
         } else if (isMuro) {
-          const grupoMuro = e.clave || (tipo.charAt(0).toUpperCase() + tipo.slice(1)) || "Muro";
-          if (!resumenMuros[grupoMuro]) resumenMuros[grupoMuro] = {};
-          resumenMuros[grupoMuro][numVar] = (resumenMuros[grupoMuro][numVar] || 0) + kgTotalItem;
+          resumenMuros[numVar] = (resumenMuros[numVar] || 0) + kgTotalItem;
         } else {
           resumenEstructura[numVar] =
             (resumenEstructura[numVar] || 0) + kgTotalItem;
@@ -4632,58 +6062,54 @@ function ProjectWorkspace({
 
                   const renderExVal = (v) => {
                     const num = parseFloat(v);
-                    if (isNaN(num) || num === 0) return "-";
                     return num.toFixed(2);
                   };
 
-                  let html = `<table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">
+                  let html = `<table style="border-collapse: collapse; font-family: Arial, sans-serif;">
                       <colgroup>
                          <col width="30" />
-                         <col width="70" />
+                         <col width="80" />
                          <col width="160" />
                          <col width="120" />
+                         <col width="60" />
+                         <col width="150" />
+                         <col width="60" />
+                         <col width="60" />
+                         <col width="60" />
+                         <col width="70" />
+                         <col width="60" />
                          <col width="50" />
+                         <col width="50" />
+                         <col width="50" />
+                         <col width="60" />
+                         <col width="60" />
+                         <col width="70" />
                          <col width="100" />
-                         <col width="60" />
-                         <col width="60" />
-                         <col width="50" />
-                         <col width="70" />
-                         <col width="60" />
-                         <col width="50" />
-                         <col width="50" />
-                         <col width="60" />
-                         <col width="70" />
-                         <col width="70" />
-                         <col width="110" />
                       </colgroup>
                       <thead>
-                      <tr style="height: 15pt;">
+                      <tr style="height: 20pt;">
                          <td style="border: none; background-color: #ffffff;"></td>
-                         <th colspan="16" style="background-color: #0b1a30; color: #ffffff; font-size: 12pt; font-weight: bold; text-align: center; vertical-align: middle; border: 1px solid #000000; text-transform: uppercase;">
-                            REPORTE GLOBAL DE ACERO (DESGLOSE POR ELEMENTO) - NIVEL: ${titleLevelName}
-                         </th>
+                         <th colspan="17" style="background-color: #0b1a30; color: #ffffff; font-size: 11pt; font-weight: bold; text-align: center; vertical-align: middle; border: 1.5pt solid #000000; text-transform: uppercase;">REPORTE GLOBAL DE ACERO (DESGLOSE POR ELEMENTO) - NIVEL: ${titleLevelName}</th>
                       </tr>
-                      <tr style="height: 15pt;">
-                         <td colspan="17" style="border: none; background-color: #ffffff;"></td>
-                      </tr>
-                      <tr style="background-color: #e2e8f0; color: #000000; font-size: 8pt; font-weight: bold; text-align: center; height: 15pt;">
+                      <tr style="background-color: #ffffff; color: #000000; font-size: 8.5pt; font-weight: bold; text-align: center; height: 18pt;">
                          <td style="border: none; background-color: #ffffff;"></td>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">NIVEL</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">UBICACIÓN (EJE / CLAVE)</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">ELEMENTO</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">PZAS</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">TIPO REF.</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;"># VAR</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">TRAMO</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">SEP.</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">PZAS REF.</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">LONG.</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">GAN.</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">TRAS.</th>
-                         <th style="border: 1px solid #000000; vertical-align: middle;">ML/PZA</th>
-                         <th style="border: 1px solid #000000; color: #0070c0; vertical-align: middle;">TOT.(ML)</th>
-                         <th style="border: 1px solid #000000; color: #002060; vertical-align: middle;">TOT.(KG)</th>
-                         <th style="border: 1px solid #000000; color: #002060; vertical-align: middle;">TOTAL ELEM.(KG)</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; border-left: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">NIVEL</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">UBICACIÓN (EJE / CLAVE)</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">ELEMENTO</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">PZAS</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">TIPO REF.</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;"># VAR</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">TRAMO</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">SEP.</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">PZAS REF.</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">LONG.</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">GAN.</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">ANCL.</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">TRAS.</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">ML/PZA</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; color: #0054ff; vertical-align: middle; background-color: #ffffff;">TOT.(ML)</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; color: #0054ff; vertical-align: middle; background-color: #ffffff;">TOT.(KG)</th>
+                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; border-right: 1.5pt solid #000000; color: #0054ff; vertical-align: middle; background-color: #ffffff;">TOTAL ELEM.(KG)</th>
                       </tr>
                    </thead><tbody>`;
 
@@ -4694,46 +6120,55 @@ function ProjectWorkspace({
                       e.aceros.length > 0 ? e.aceros.length : 1;
 
                     if (e.aceros.length === 0) {
-                      html += `<tr style="background-color: #ffffff; text-align: center; height: 15pt;">
+                      html += `<tr style="background-color: #ffffff; text-align: center; height: 18pt;">
                             <td style="border: none; background-color: #ffffff;"></td>
-                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e._nivelInfo}</td>
-                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; text-transform: uppercase; vertical-align: middle; text-align: center;">${e.eje} ${e.clave}</td>
-                            <td style="border: 1px solid #000000; font-size: 8pt; color: #595959; text-transform: uppercase; vertical-align: middle; text-align: center;">${e.tipo}</td>
-                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #1d4ed8; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${ePiezas.toFixed(2)}</td>
-                            <td colspan="11" style="border: 1px solid #000000; font-size: 8pt; color: #808080; vertical-align: middle; text-align: center;">Sin acero</td>
-                            <td style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #1d4ed8; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${elemTotalKg.toFixed(2)}</td>
+                            <td style="border: 1pt solid #000000; border-left: 1.5pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: left; padding-left: 5px;">${e._nivelInfo}</td>
+                            <td style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e.eje} ${e.clave}</td>
+                            <td style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; color: #595959; vertical-align: middle; text-align: center;">${e.tipo}</td>
+                            <td style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #0054ff; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${ePiezas.toFixed(2)}</td>
+                            <td colspan="12" style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: normal; color: #000000; vertical-align: middle; text-align: center;">Sin acero</td>
+                            <td style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #0054ff; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${elemTotalKg.toFixed(2)}</td>
                          </tr>`;
                     } else {
                       e.aceros.forEach((a, idx) => {
                         const calc = calcAceroItem(a);
                         const kgTotal =
                           Math.round(calc.kg * ePiezas * 100) / 100;
-                        html += `<tr style="background-color: #ffffff; text-align: center; height: 15pt;">
+                        const isLastAcero = idx === e.aceros.length - 1;
+
+                        const bottomBorderStyle = isLastAcero
+                          ? "1.5pt solid #000000"
+                          : "1pt solid #000000";
+                        const rowStyle = `border: 1pt solid #000000; border-bottom: ${bottomBorderStyle};`;
+                        const rowspanStyle = `border: 1pt solid #000000; border-bottom: 1.5pt solid #000000;`;
+
+                        html += `<tr style="background-color: #ffffff; text-align: center; height: 18pt;">
                                <td style="border: none; background-color: #ffffff;"></td>`;
 
                         if (idx === 0) {
                           html += `
-                               <td rowspan="${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e._nivelInfo}</td>
-                               <td rowspan="${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #000000; text-transform: uppercase; vertical-align: middle; text-align: center;">${e.eje} ${e.clave}</td>
-                               <td rowspan="${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; color: #595959; text-transform: uppercase; vertical-align: middle; text-align: center;">${e.tipo}</td>
-                               <td rowspan="${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; font-weight: bold; color: #1d4ed8; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${ePiezas.toFixed(2)}</td>`;
+                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} border-left: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e._nivelInfo}</td>
+                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} font-size: 8.5pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e.eje} ${e.clave}</td>
+                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} font-size: 8.5pt; color: #595959; vertical-align: middle; text-align: center;">${e.tipo}</td>
+                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} font-size: 8.5pt; font-weight: bold; color: #0054ff; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${ePiezas.toFixed(2)}</td>`;
                         }
 
                         html += `
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #000000; text-align: center; text-transform: uppercase; vertical-align: middle;">${a.tipo}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">#${parseFloat(a.numVarilla || 0).toFixed(2)}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.anchoCalc)}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.separacion)}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${parseFloat(a.piezas || 1).toFixed(2)}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.longitud)}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #059669; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.ganchos)}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #059669; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.traslapes)}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #64748b; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${calc.mlPorPieza.toFixed(2)}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${(calc.ml * ePiezas).toFixed(2)}</td>
-                               <td style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${kgTotal.toFixed(2)}</td>`;
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; text-align: center; vertical-align: middle;">${a.tipo}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; text-align: center; vertical-align: middle;">#${parseFloat(a.numVarilla || 0).toFixed(2)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.anchoCalc)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.separacion)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${parseFloat(a.piezas || 1).toFixed(2)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.longitud)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.ganchos)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.anclaje)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.traslapes)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${calc.mlPorPieza.toFixed(2)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${(calc.ml * ePiezas).toFixed(2)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${kgTotal.toFixed(2)}</td>`;
 
                         if (idx === 0) {
-                          html += `<td rowspan="${tipoRowSpan}" style="border: 1px solid #000000; font-size: 8pt; color: #1d4ed8; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${elemTotalKg.toFixed(2)}</td>`;
+                          html += `<td rowspan="${tipoRowSpan}" style="${rowspanStyle} border-right: 1.5pt solid #000000; font-size: 9pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${elemTotalKg.toFixed(2)}</td>`;
                         }
                         html += `</tr>`;
                       });
@@ -4741,109 +6176,117 @@ function ProjectWorkspace({
                   });
                   html += `</tbody></table><br/><br/>`;
 
-                  html += `<table style="width: 100%; border: none; font-family: Arial, sans-serif;"><tr>
-                     <td style="width: 30px; border: none;"></td>
-                     <td style="vertical-align: top; border: none; padding-right: 15px;">
-                        <table style="border-collapse: collapse; text-align: center;">
-                           <thead>
-                              <tr style="height: 15pt;"><th colspan="2" style="background-color: #0f766e; color: #ffffff; font-size: 12pt; border: 1px solid #bfbfbf; vertical-align: middle;">CIMENTACIÓN</th></tr>
-                              <tr style="background-color: #ccfbf1; font-size: 12pt; color: #0f766e; height: 15pt;">
-                                 <th style="border: 1px solid #bfbfbf; width: 100px; vertical-align: middle; font-weight: normal; font-size: 10pt;">CALIBRE</th>
-                                 <th style="border: 1px solid #bfbfbf; width: 120px; vertical-align: middle; font-weight: normal; font-size: 10pt;">PESO (KG)</th>
-                              </tr>
-                           </thead>
-                           <tbody>
-                              ${
-                                Object.keys(resumenCimentacion).length === 0
-                                  ? `<tr style="height: 15pt;"><td colspan="2" style="border: 1px solid #bfbfbf; color: #94a3b8; font-size: 12pt; vertical-align: middle;">Sin datos</td></tr>`
-                                  : Object.entries(resumenCimentacion)
-                                      .sort(
-                                        (a, b) => Number(a[0]) - Number(b[0]),
-                                      )
-                                      .map(
-                                        ([num, kg]) => `
-                                <tr style="background-color: #ffffff; height: 15pt;">
-                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #0f766e; font-size: 12pt; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">#${parseFloat(num).toFixed(2)}</td>
-                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #000000; text-align: center; font-size: 12pt; vertical-align: middle; mso-number-format:'0\\.00';">${kg.toFixed(2)}</td>
-                                </tr>`,
-                                      )
-                                      .join("")
-                              }
-                           </tbody>
-                        </table>
-                     </td>
-                     <td style="vertical-align: top; border: none; padding-right: 15px;">
-                        <table style="border-collapse: collapse; text-align: center;">
-                           <thead>
-                              <tr style="height: 15pt;"><th colspan="2" style="background-color: #1d4ed8; color: #ffffff; font-size: 12pt; border: 1px solid #bfbfbf; vertical-align: middle;">ESTRUCTURA</th></tr>
-                              <tr style="background-color: #dbeafe; font-size: 12pt; color: #1d4ed8; height: 15pt;">
-                                 <th style="border: 1px solid #bfbfbf; width: 100px; vertical-align: middle; font-weight: normal; font-size: 10pt;">CALIBRE</th>
-                                 <th style="border: 1px solid #bfbfbf; width: 120px; vertical-align: middle; font-weight: normal; font-size: 10pt;">PESO (KG)</th>
-                              </tr>
-                           </thead>
-                           <tbody>
-                              ${
-                                Object.keys(resumenEstructura).length === 0
-                                  ? `<tr style="height: 15pt;"><td colspan="2" style="border: 1px solid #bfbfbf; color: #94a3b8; font-size: 12pt; vertical-align: middle;">Sin datos</td></tr>`
-                                  : Object.entries(resumenEstructura)
-                                      .sort(
-                                        (a, b) => Number(a[0]) - Number(b[0]),
-                                      )
-                                      .map(
-                                        ([num, kg]) => `
-                                <tr style="background-color: #ffffff; height: 15pt;">
-                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #1d4ed8; font-size: 12pt; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">#${parseFloat(num).toFixed(2)}</td>
-                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #000000; text-align: center; font-size: 12pt; vertical-align: middle; mso-number-format:'0\\.00';">${kg.toFixed(2)}</td>
-                                </tr>`,
-                                      )
-                                      .join("")
-                              }
-                           </tbody>
-                        </table>
-                     </td>
-                     <td style="vertical-align: top; border: none; padding-right: 15px;">
-                        <table style="border-collapse: collapse; text-align: center;">
-                           <thead>
-                              <tr style="height: 15pt;"><th colspan="2" style="background-color: #4338ca; color: #ffffff; font-size: 12pt; border: 1px solid #bfbfbf; vertical-align: middle;">MUROS</th></tr>
-                              <tr style="background-color: #e0e7ff; font-size: 12pt; color: #4338ca; height: 15pt;">
-                                 <th style="border: 1px solid #bfbfbf; width: 100px; vertical-align: middle; font-weight: normal; font-size: 10pt;">CALIBRE</th>
-                                 <th style="border: 1px solid #bfbfbf; width: 120px; vertical-align: middle; font-weight: normal; font-size: 10pt;">PESO (KG)</th>
-                              </tr>
-                           </thead>
-                           <tbody>
-                              ${
-                                Object.keys(resumenMuros).length === 0
-                                  ? `<tr style="height: 15pt;"><td colspan="2" style="border: 1px solid #bfbfbf; color: #94a3b8; font-size: 12pt; vertical-align: middle;">Sin datos</td></tr>`
-                                  : Object.entries(resumenMuros)
-                                      .map(([grupo, vars]) => {
-                                         let rows = `<tr style="background-color: #e0e7ff; height: 15pt;"><td colspan="2" style="border: 1px solid #bfbfbf; font-weight: bold; color: #4338ca; font-size: 11pt; vertical-align: middle; text-align: center;">${grupo}</td></tr>`;
-                                         rows += Object.entries(vars)
-                                           .sort((a, b) => Number(a[0]) - Number(b[0]))
-                                           .map(([num, kg]) => `
-                                <tr style="background-color: #ffffff; height: 15pt;">
-                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #4338ca; font-size: 12pt; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">#${parseFloat(num).toFixed(2)}</td>
-                                   <td style="border: 1px solid #bfbfbf; font-weight: bold; color: #000000; text-align: center; font-size: 12pt; vertical-align: middle; mso-number-format:'0\\.00';">${kg.toFixed(2)}</td>
-                                </tr>`)
-                                           .join("");
-                                         return rows;
-                                      })
-                                      .join("")
-                              }
-                           </tbody>
-                        </table>
-                     </td>
-                     <td style="vertical-align: top; border: none;">
-                        <table style="border-collapse: collapse; text-align: center;">
-                           <thead>
-                              <tr style="height: 15pt;"><th style="background-color: #0b1a30; color: #93c5fd; font-size: 12pt; border: 1px solid #bfbfbf; vertical-align: middle; width: 250px;">GRAN TOTAL ACERO (KG)</th></tr>
-                           </thead>
-                           <tbody>
-                              <tr style="height: 30pt;"><td style="border: 1px solid #bfbfbf; font-size: 20pt; font-weight: bold; color: #1d4ed8; padding: 10px; background-color: #ffffff; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${totalGlobalAcero.toFixed(2)}</td></tr>
-                           </tbody>
-                        </table>
-                     </td>
-                   </tr>
-                   </table>`;
+                  const cimArr = Object.entries(resumenCimentacion).sort(
+                    (a, b) => Number(a[0]) - Number(b[0]),
+                  );
+                  const estArr = Object.entries(resumenEstructura).sort(
+                    (a, b) => Number(a[0]) - Number(b[0]),
+                  );
+                  const murArr = Object.entries(resumenMuros).sort(
+                    (a, b) => Number(a[0]) - Number(b[0]),
+                  );
+
+                  const maxRows = Math.max(
+                    cimArr.length,
+                    estArr.length,
+                    murArr.length,
+                    1,
+                  );
+
+                  html += `<table border="0" style="border-collapse: collapse; text-align: center; font-family: Arial, sans-serif;">
+                      <colgroup>
+                         <col width="30" />
+                         <col width="80" />
+                         <col width="160" />
+                         <col width="120" />
+                         <col width="60" />
+                         <col width="150" />
+                         <col width="60" />
+                         <col width="60" />
+                         <col width="60" />
+                         <col width="70" />
+                         <col width="60" />
+                         <col width="50" />
+                         <col width="50" />
+                         <col width="50" />
+                         <col width="60" />
+                         <col width="60" />
+                         <col width="70" />
+                         <col width="100" />
+                      </colgroup>
+                     <thead>
+                        <tr style="height: 18pt;">
+                           <td style="width: 30px; border: none;"></td>
+                           <th colspan="3" style="background-color: #008060; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">CIMENTACIÓN</th>
+                           <th colspan="6" style="background-color: #0054ff; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">ESTRUCTURA</th>
+                           <th colspan="5" style="background-color: #6600cc; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">MUROS</th>
+                           <th colspan="3" style="background-color: #000000; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">TOTAL</th>
+                        </tr>
+                        <tr style="height: 16pt;">
+                           <td style="border: none;"></td>
+                           <th colspan="1" style="border: 1pt solid #000000; border-left: 1.5pt solid #000000; background-color: #ccffeb; color: #008060; padding: 2px;">CALIBRE</th>
+                           <th colspan="2" style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; background-color: #ccffeb; color: #008060; padding: 2px;">PESO (KG)</th>
+                           
+                           <th colspan="3" style="border: 1pt solid #000000; background-color: #e6f0ff; color: #0054ff; padding: 2px;">CALIBRE</th>
+                           <th colspan="3" style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; background-color: #e6f0ff; color: #0054ff; padding: 2px;">PESO (KG)</th>
+                           
+                           <th colspan="4" style="border: 1pt solid #000000; background-color: #f2e6ff; color: #6600cc; padding: 2px;">CALIBRE</th>
+                           <th colspan="1" style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; background-color: #f2e6ff; color: #6600cc; padding: 2px;">PESO<br/>(KG)</th>
+                           
+                           <td colspan="3" rowspan="${maxRows + 1}" style="border: 1.5pt solid #000000; background-color: #ffffff; color: #0054ff; font-weight: bold; font-size: 14pt; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${totalGlobalAcero.toFixed(2)}</td>
+                        </tr>
+                     </thead>
+                     <tbody>`;
+
+                  for (let i = 0; i < maxRows; i++) {
+                    const isLast = i === maxRows - 1;
+                    const btmBorder = isLast
+                      ? "1.5pt solid #000000"
+                      : "1pt solid #000000";
+
+                    const cItem = cimArr[i];
+                    const eItem = estArr[i];
+                    const mItem = murArr[i];
+
+                    html += `<tr style="height: 16pt; background-color: #ffffff;">
+                        <td style="border: none;"></td>`;
+
+                    if (cimArr.length === 0 && i === 0) {
+                      html += `<td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-left: 1.5pt solid #000000; color: #a6a6a6; text-align: center; vertical-align: middle;">Sin datos</td>
+                                 <td colspan="2" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                    } else if (cItem) {
+                      html += `<td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-left: 1.5pt solid #000000; font-weight: bold; color: #0054ff; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">#${parseFloat(cItem[0]).toFixed(2)}</td>
+                                 <td colspan="2" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000; font-weight: bold; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${cItem[1].toFixed(2)}</td>`;
+                    } else {
+                      html += `<td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-left: 1.5pt solid #000000;"></td>
+                                 <td colspan="2" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                    }
+
+                    if (estArr.length === 0 && i === 0) {
+                      html += `<td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; color: #a6a6a6; text-align: center; vertical-align: middle;">Sin datos</td>
+                                 <td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                    } else if (eItem) {
+                      html += `<td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; font-weight: bold; color: #0054ff; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">#${parseFloat(eItem[0]).toFixed(2)}</td>
+                                 <td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000; font-weight: bold; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${eItem[1].toFixed(2)}</td>`;
+                    } else {
+                      html += `<td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder};"></td>
+                                 <td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                    }
+
+                    if (murArr.length === 0 && i === 0) {
+                      html += `<td colspan="4" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; color: #a6a6a6; text-align: center; vertical-align: middle;">Sin datos</td>
+                                 <td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                    } else if (mItem) {
+                      html += `<td colspan="4" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; font-weight: bold; color: #0054ff; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">#${parseFloat(mItem[0]).toFixed(2)}</td>
+                                 <td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000; font-weight: bold; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${mItem[1].toFixed(2)}</td>`;
+                    } else {
+                      html += `<td colspan="4" style="border: 1pt solid #000000; border-bottom: ${btmBorder};"></td>
+                                 <td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                    }
+                    html += `</tr>`;
+                  }
+
+                  html += `</tbody></table>`;
 
                   exportFormattedExcel(
                     html,
@@ -4867,49 +6310,56 @@ function ProjectWorkspace({
               <table className="w-full text-left border-collapse text-[10px] md:text-xs">
                 <thead className="bg-slate-200 text-slate-700 uppercase font-black sticky top-0 shadow-sm z-10">
                   <tr>
-                    <th className="p-3 border-b border-slate-300">Nivel</th>
-                    <th className="p-3 border-b border-slate-300">
+                    <th className="p-3 border-b border-slate-300 w-[8%]">
+                      Nivel
+                    </th>
+                    <th className="p-3 border-b border-slate-300 w-[5%]">
                       Ubicación (Eje / Clave)
                     </th>
-                    <th className="p-3 border-b border-slate-300">Elemento</th>
-                    <th className="p-3 border-b border-slate-300 text-center">
+                    <th className="p-3 border-b border-slate-300 w-[5%]">
+                      Elemento
+                    </th>
+                    <th className="p-3 border-b border-slate-300 text-center w-[5%]">
                       Pzas
                     </th>
-                    <th className="p-0 border-b border-slate-300">
+                    <th className="p-0 border-b border-slate-300 w-[77%]">
                       <table className="w-full">
                         <thead>
                           <tr>
-                            <th className="w-[11%] p-2 text-center border-r border-slate-300">
+                            <th className="w-[10%] p-2 text-center border-r border-slate-300">
                               Tipo Ref.
                             </th>
-                            <th className="w-[7%] p-2 text-center border-r border-slate-300">
+                            <th className="w-[8%] p-2 text-center border-r border-slate-300">
                               # Var
                             </th>
-                            <th className="w-[9%] p-2 text-center border-r border-slate-300">
+                            <th className="w-[8%] p-2 text-center border-r border-slate-300">
                               Tramo
                             </th>
-                            <th className="w-[9%] p-2 text-center border-r border-slate-300">
+                            <th className="w-[8%] p-2 text-center border-r border-slate-300">
                               Sep.
                             </th>
-                            <th className="w-[9%] p-2 text-center border-r border-slate-300">
+                            <th className="w-[8%] p-2 text-center border-r border-slate-300">
                               Pzas
                             </th>
-                            <th className="w-[9%] p-2 text-center border-r border-slate-300">
+                            <th className="w-[8%] p-2 text-center border-r border-slate-300">
                               Long.
                             </th>
                             <th className="w-[8%] p-2 text-center border-r border-slate-300">
                               Gan.
                             </th>
                             <th className="w-[8%] p-2 text-center border-r border-slate-300">
+                              Ancl.
+                            </th>
+                            <th className="w-[8%] p-2 text-center border-r border-slate-300">
                               Tras.
                             </th>
-                            <th className="w-[10%] p-2 text-center border-r border-slate-300">
+                            <th className="w-[8%] p-2 text-center border-r border-slate-300">
                               ML/Pza
                             </th>
-                            <th className="w-[10%] p-2 text-right border-r border-slate-300">
+                            <th className="w-[9%] p-2 text-right border-r border-slate-300">
                               Tot.(ML)
                             </th>
-                            <th className="w-[10%] p-2 text-right">Tot.(KG)</th>
+                            <th className="w-[9%] p-2 text-right">Tot.(KG)</th>
                           </tr>
                         </thead>
                       </table>
@@ -4958,37 +6408,40 @@ function ProjectWorkspace({
                                   Math.round(calc.kg * ePiezas * 100) / 100;
                                 return (
                                   <tr key={j} className="hover:bg-blue-50/50">
-                                    <td className="w-[11%] p-2 text-center border-r border-slate-100 font-bold text-slate-600 uppercase">
+                                    <td className="w-[10%] p-2 text-center border-r border-slate-100 font-bold text-slate-600 uppercase">
                                       {a.tipo}
                                     </td>
-                                    <td className="w-[7%] p-2 text-center border-r border-slate-100 font-black text-slate-800">
+                                    <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-slate-800">
                                       #{a.numVarilla}
                                     </td>
-                                    <td className="w-[9%] p-2 text-center border-r border-slate-100 font-bold text-indigo-900">
+                                    <td className="w-[8%] p-2 text-center border-r border-slate-100 font-bold text-indigo-900">
                                       {a.anchoCalc || "-"}
                                     </td>
-                                    <td className="w-[9%] p-2 text-center border-r border-slate-100 font-bold text-indigo-900">
+                                    <td className="w-[8%] p-2 text-center border-r border-slate-100 font-bold text-indigo-900">
                                       {a.separacion || "-"}
                                     </td>
-                                    <td className="w-[9%] p-2 text-center border-r border-slate-100 font-black text-blue-900">
+                                    <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-blue-900">
                                       {a.piezas || "1"}
                                     </td>
-                                    <td className="w-[9%] p-2 text-center border-r border-slate-100 font-black text-blue-800">
+                                    <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-blue-800">
                                       {parseFloat(a.longitud || 0).toFixed(2)}
                                     </td>
                                     <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-emerald-800">
                                       {a.ganchos || "0"}
                                     </td>
                                     <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-emerald-800">
+                                      {a.anclaje || "0"}
+                                    </td>
+                                    <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-emerald-800">
                                       {parseFloat(a.traslapes || 0).toFixed(2)}
                                     </td>
-                                    <td className="w-[10%] p-2 text-center border-r border-slate-100 font-black text-slate-500">
+                                    <td className="w-[8%] p-2 text-center border-r border-slate-100 font-black text-slate-500">
                                       {calc.mlPorPieza.toFixed(2)}
                                     </td>
-                                    <td className="w-[10%] p-2 text-right border-r border-slate-100 font-black text-slate-600">
+                                    <td className="w-[9%] p-2 text-right border-r border-slate-100 font-black text-slate-600">
                                       {(calc.ml * ePiezas).toFixed(2)}
                                     </td>
-                                    <td className="w-[10%] p-2 text-right font-black text-blue-700">
+                                    <td className="w-[9%] p-2 text-right font-black text-blue-700">
                                       {kgTotal.toFixed(2)}
                                     </td>
                                   </tr>
@@ -5079,21 +6532,21 @@ function ProjectWorkspace({
                       </span>
                     )}
                     {Object.entries(resumenMuros)
-                      .map(([grupo, vars]) => (
-                        <div key={grupo} className="flex flex-col gap-1.5">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{grupo}</span>
-                          <div className="grid grid-cols-2 gap-2">
-                             {Object.entries(vars).sort((a,b)=>Number(a[0])-Number(b[0])).map(([num, kg]) => (
-                                <div key={num} className="bg-indigo-50/50 border border-indigo-100 rounded-lg p-2">
-                                  <span className="block text-[8px] font-black text-indigo-500 uppercase">
-                                    Varilla #{num}
-                                  </span>
-                                  <span className="font-black text-indigo-700 text-sm">
-                                    {kg.toLocaleString(undefined, { minimumFractionDigits: 2 })} <span className="text-[8px]">kg</span>
-                                  </span>
-                                </div>
-                             ))}
-                          </div>
+                      .sort((a, b) => Number(a[0]) - Number(b[0]))
+                      .map(([num, kg]) => (
+                        <div
+                          key={num}
+                          className="bg-indigo-50 border border-indigo-100 rounded-lg p-2.5"
+                        >
+                          <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-wider mb-1">
+                            Varilla #{num}
+                          </span>
+                          <span className="font-black text-indigo-700 text-lg md:text-xl">
+                            {kg.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                            })}{" "}
+                            <span className="text-xs">kg</span>
+                          </span>
                         </div>
                       ))}
                   </div>
@@ -5123,6 +6576,2015 @@ function ProjectWorkspace({
     );
   };
 
+  const getMetalRowWeights = (r) => {
+    let pzas = parseFloat(r.pzas);
+    if (isNaN(pzas)) pzas = 1;
+    let ancho = parseFloat(r.ancho);
+    if (isNaN(ancho)) ancho = 1;
+
+    let p = 0;
+    let w = 0;
+
+    if (r.tipo === "Polín Monten") {
+      const pd = POLIN_DATA[r.medidaNominal];
+      p = pd?.pesos[r.calibre] || 0;
+      w = (parseFloat(r.largo) || 0) * p * pzas;
+    } else if (r.tipo === "Viga IPR") {
+      const pdList = IPR_DATA[r.medidaNominal] || [];
+      const item = pdList.find((x) => x.kg.toString() === r.calibre) ||
+        pdList[0] || { kg: 0 };
+      p = item.kg;
+      w = (parseFloat(r.largo) || 0) * item.kg * pzas;
+    } else if (r.tipo === "Perfil HSS Cuadrado") {
+      const pd = HSS_DATA[r.medidaNominal];
+      p = pd?.pesos[r.calibre] || 0;
+      w = (parseFloat(r.largo) || 0) * p * pzas;
+    } else if (r.tipo === "Perfil HSS Rectangular") {
+      const pd = HSS_RECT_DATA[r.medidaNominal];
+      p = pd?.pesos[r.calibre] || 0;
+      w = (parseFloat(r.largo) || 0) * p * pzas;
+    } else if (r.tipo === "Placas Metálicas") {
+      p = PLACAS_DATA[r.calibre] || 0;
+      const m2 = (parseFloat(r.largo) || 0) * ancho;
+      w = m2 * p * pzas;
+    } else if (r.tipo === "Lámina Galvanizada") {
+      const pd = LAMINA_DATA[r.medidaNominal];
+      p = pd?.pesos[r.calibre] || 0;
+      const m2 = (parseFloat(r.largo) || 0) * ancho;
+      w = m2 * p * pzas;
+    } else if (r.tipo === "Perfil PTR") {
+      const pd = PTR_DATA[r.medidaNominal];
+      p = pd?.pesos[r.calibre] || 0;
+      w = (parseFloat(r.largo) || 0) * p * pzas;
+    } else if (r.tipo === "Canales Tipo C") {
+      const pd = CANALES_C_DATA[r.medidaNominal];
+      p = pd?.pesos[r.calibre] || 0;
+      w = (parseFloat(r.largo) || 0) * p * pzas;
+    } else if (r.tipo === "Perfiles OC") {
+      const pd = PERFILES_OC_DATA[r.medidaNominal];
+      p = pd?.pesos[r.calibre] || 0;
+      w = (parseFloat(r.largo) || 0) * p * pzas;
+    } else if (r.tipo === "Viga IR") {
+      p = parseFloat(r.calibre) || 0;
+      w = (parseFloat(r.largo) || 0) * p * pzas;
+    }
+
+    return { pzas, p, w };
+  };
+
+  const renderAnalysisNervadura = () => {
+    if (!showAnalysisNervadura) return null;
+
+    const availableNervaduras = estructuras.filter((e) =>
+      ["losa nervada", "nervadura"].includes((e.tipo || "").toLowerCase()),
+    );
+
+    const toggleSelection = (eId) => {
+      setNervaduraAnalysisSelection((prev) =>
+        prev.includes(eId) ? prev.filter((id) => id !== eId) : [...prev, eId],
+      );
+    };
+
+    const toggleAll = () => {
+      if (
+        nervaduraAnalysisSelection.length === availableNervaduras.length &&
+        availableNervaduras.length > 0
+      ) {
+        setNervaduraAnalysisSelection([]);
+      } else {
+        setNervaduraAnalysisSelection(availableNervaduras.map((e) => e.id));
+      }
+    };
+
+    const selectedElements = availableNervaduras.filter((e) =>
+      nervaduraAnalysisSelection.includes(e.id),
+    );
+
+    let totalCaseton = 0;
+    let totalConcreto = 0;
+    let totalCimbra = 0;
+    let totalCimbraFrontera = 0;
+    const acerosDetalle = { 3: 0, 4: 0, 5: 0, 6: 0, 8: 0, 10: 0 };
+    let totalAceroVarilla = 0;
+
+    selectedElements.forEach((e) => {
+      const isLosaNervada = (e.tipo || "").toLowerCase() === "losa nervada";
+      if (isLosaNervada) {
+        totalCaseton += getCasetonesTotalVol(e.casetones || [], e.piezas);
+      }
+      totalConcreto += calcConcreto(e);
+      totalCimbra += calcCimbra(e);
+      totalCimbraFrontera += calcCimbraFrontera(e);
+
+      const p = parseFloat(e.piezas) || 1;
+      (e.aceros || []).forEach((a) => {
+        const kg = Math.round(calcAceroItem(a).kg * p * 100) / 100;
+        if (kg > 0) {
+          totalAceroVarilla += kg;
+          const varillaNum = parseInt(a.numVarilla || "0", 10);
+          if (varillaNum > 0 && acerosDetalle[varillaNum] !== undefined) {
+            acerosDetalle[varillaNum] += kg;
+          }
+        }
+      });
+    });
+
+    const m2Parsed = parseFloat(nervaduraAnalysisM2) || 0;
+
+    const exportToExcelConfig = () => {
+      let exportHtml = `<table border="1" style="border-collapse: collapse; font-family: Arial, sans-serif;">
+        <thead>
+          <tr><th colspan="3" style="background-color: #0891b2; color: #fff; padding: 10px; font-size: 14pt;">Análisis de Nervadura y Losa Nervada</th></tr>
+          <tr><th colspan="3" style="background-color: #cffafe; padding: 5px;">M2 Totales Analizados: ${m2Parsed.toFixed(2)}</th></tr>
+          <tr>
+            <th style="background-color: #f1f5f9;">Concepto</th>
+            <th style="background-color: #f1f5f9;">Volumen Total</th>
+            <th style="background-color: #cffafe; color: #0e7490;">Cant. por m2</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Vol. Casetones (m3)</td><td style="text-align: center">${totalCaseton.toFixed(4)}</td><td style="text-align: center; color: #0891b2">${(m2Parsed > 0 ? totalCaseton / m2Parsed : 0).toFixed(4)}</td></tr>
+          <tr><td>Concreto (m3)</td><td style="text-align: center">${totalConcreto.toFixed(4)}</td><td style="text-align: center; color: #0891b2">${(m2Parsed > 0 ? totalConcreto / m2Parsed : 0).toFixed(4)}</td></tr>
+          <tr><td>Cimbra (m2)</td><td style="text-align: center">${totalCimbra.toFixed(4)}</td><td style="text-align: center; color: #0891b2">${(m2Parsed > 0 ? totalCimbra / m2Parsed : 0).toFixed(4)}</td></tr>
+          <tr><td>Cimbra Frontera (ml)</td><td style="text-align: center">${totalCimbraFrontera.toFixed(4)}</td><td style="text-align: center; color: #0891b2">${(m2Parsed > 0 ? totalCimbraFrontera / m2Parsed : 0).toFixed(4)}</td></tr>
+          <tr><td colspan="3" style="background-color: #f1f5f9; font-weight: bold;">Acero Total por Calibre</td></tr>`;
+
+      [3, 4, 5, 6, 8, 10].forEach((v) => {
+        exportHtml += `<tr><td>Acero #${v} (kg)</td><td style="text-align: center">${acerosDetalle[v].toFixed(4)}</td><td style="text-align: center; color: #0891b2">${(m2Parsed > 0 ? acerosDetalle[v] / m2Parsed : 0).toFixed(4)}</td></tr>`;
+      });
+
+      exportHtml += `<tr style="font-weight: bold;">
+        <td style="text-align: right; background-color: #f1f5f9;">Acero Total (kg)</td>
+        <td style="text-align: center; background-color: #f1f5f9;">${totalAceroVarilla.toFixed(4)}</td>
+        <td style="text-align: center; background-color: #cffafe; color: #0e7490;">${(m2Parsed > 0 ? totalAceroVarilla / m2Parsed : 0).toFixed(4)}</td>
+      </tr>
+      </tbody></table><br/>`;
+
+      // Concreto
+      exportHtml += `<table border="1" style="border-collapse: collapse; font-family: Arial, sans-serif;">
+        <thead>
+          <tr><th colspan="8" style="background-color: #f1f5f9; padding: 5px; font-weight: bold;">Generador de Concreto</th></tr>
+          <tr style="background-color: #f8fafc; font-size: 10pt;">
+            <th>Elemento</th><th>Largo</th><th>Ancho</th><th>Alto</th><th>Pzas</th>
+            <th>Vol. Bruto</th><th>Vol. Casetones</th><th style="color: #0e7490;">Concreto Neto (m3)</th>
+          </tr>
+        </thead>
+        <tbody style="font-size: 10pt;">`;
+      selectedElements
+        .filter((e) => (e.tipo || "").toLowerCase() !== "nervadura")
+        .forEach((e) => {
+          const p = parseFloat(e.piezas) || 1;
+          const volBruto =
+            getEffectiveLargo(e) *
+            (parseFloat(e.ancho) || 0) *
+            (parseFloat(e.alto) || 0) *
+            p;
+          const volCaseton =
+            (e.tipo || "").toLowerCase() === "losa nervada"
+              ? getCasetonesTotalVol(e.casetones || [], p)
+              : 0;
+          exportHtml += `<tr>
+          <td>${e.tipo} - ${e.eje} - ${e.clave}</td>
+          <td style="text-align: center">${e.largo}</td><td style="text-align: center">${e.ancho}</td>
+          <td style="text-align: center">${e.alto}</td><td style="text-align: center">${e.piezas}</td>
+          <td style="text-align: center">${volBruto.toFixed(4)}</td>
+          <td style="text-align: center">${volCaseton.toFixed(4)}</td>
+          <td style="text-align: center; font-weight: bold; color: #0891b2;">${calcConcreto(e).toFixed(4)}</td>
+        </tr>`;
+        });
+      exportHtml += `</tbody></table><br/>`;
+
+      // Cimbra
+      exportHtml += `<table border="1" style="border-collapse: collapse; font-family: Arial, sans-serif;">
+        <thead>
+          <tr><th colspan="8" style="background-color: #f1f5f9; padding: 5px; font-weight: bold;">Generador de Cimbra</th></tr>
+          <tr style="background-color: #f8fafc; font-size: 10pt;">
+            <th>Elemento</th><th>Largo</th><th>Ancho</th><th>Alto</th><th>Pzas</th>
+            <th>Descuenta</th><th style="color: #0e7490;">Cimbra (m2)</th><th style="color: #0e7490;">Cimbra Frontera (ml)</th>
+          </tr>
+        </thead>
+        <tbody style="font-size: 10pt;">`;
+      selectedElements
+        .filter((e) => (e.tipo || "").toLowerCase() !== "nervadura")
+        .forEach((e) => {
+          exportHtml += `<tr>
+          <td>${e.tipo} - ${e.eje} - ${e.clave}</td>
+          <td style="text-align: center">${e.largo}</td><td style="text-align: center">${e.ancho}</td>
+          <td style="text-align: center">${e.alto}</td><td style="text-align: center">${e.piezas}</td>
+          <td style="text-align: center">${e.descuentaCimbra || 0}</td>
+          <td style="text-align: center; font-weight: bold; color: #0891b2;">${calcCimbra(e).toFixed(4)}</td>
+          <td style="text-align: center; font-weight: bold; color: #0891b2;">${calcCimbraFrontera(e).toFixed(4)}</td>
+        </tr>`;
+        });
+      exportHtml += `</tbody></table><br/>`;
+
+      // Casetones
+      exportHtml += `<table border="1" style="border-collapse: collapse; font-family: Arial, sans-serif;">
+        <thead>
+          <tr><th colspan="7" style="background-color: #f1f5f9; padding: 5px; font-weight: bold;">Generador de Casetones</th></tr>
+          <tr style="background-color: #f8fafc; font-size: 10pt;">
+            <th>Elemento Padre</th><th>Clave Casetón</th><th>Largo</th><th>Ancho</th><th>Alto</th>
+            <th>Pzas</th><th style="color: #0e7490;">Volumen Total (m3)</th>
+          </tr>
+        </thead>
+        <tbody style="font-size: 10pt;">`;
+      selectedElements.forEach((e) => {
+        if ((e.tipo || "").toLowerCase() === "losa nervada" && e.casetones) {
+          const pP = parseFloat(e.piezas) || 1;
+          e.casetones.forEach((c) => {
+            const p = parseFloat(c.piezas) || 1;
+            const l = parseFloat(c.largo) || 0;
+            const an = parseFloat(c.ancho) || 0;
+            const al = parseFloat(c.alto) || 0;
+            const vol = l * an * al * p * pP;
+            exportHtml += `<tr>
+              <td>${e.eje} - ${e.clave}</td>
+              <td style="text-align: center">${c.clave}</td>
+              <td style="text-align: center">${c.largo}</td><td style="text-align: center">${c.ancho}</td>
+              <td style="text-align: center">${c.alto}</td><td style="text-align: center">${p * pP}</td>
+              <td style="text-align: center; font-weight: bold; color: #0891b2;">${vol.toFixed(4)}</td>
+            </tr>`;
+          });
+        }
+      });
+      exportHtml += `</tbody></table><br/>`;
+
+      // Acero
+      exportHtml += `<table border="1" style="border-collapse: collapse; font-family: Arial, sans-serif;">
+        <thead>
+          <tr><th colspan="9" style="background-color: #f1f5f9; padding: 5px; font-weight: bold;">Generador de Acero</th></tr>
+          <tr style="background-color: #f8fafc; font-size: 10pt;">
+            <th>Elemento Padre</th><th>Refuerzo</th><th># Var.</th><th>L (m)</th><th>Sep (m)</th>
+            <th>Pzas</th><th>Total ML</th><th>Peso (kg/ml)</th><th style="color: #0e7490;">Total Kg</th>
+          </tr>
+        </thead>
+        <tbody style="font-size: 10pt;">`;
+      selectedElements.forEach((e) => {
+        const pP = parseFloat(e.piezas) || 1;
+        let acerosCorregidos = e.aceros || [];
+        const validTypesOptions = getSteelTypesForElement(e.tipo);
+        const validTypes = validTypesOptions.map((t) => t.toLowerCase());
+        if (validTypes.length > 0) {
+          acerosCorregidos = acerosCorregidos.map((a) => {
+            if (!validTypes.includes((a.tipo || "").toLowerCase())) {
+              return { ...a, tipo: validTypesOptions[0] };
+            }
+            return a;
+          });
+        }
+        acerosCorregidos.forEach((a) => {
+          const calc = calcAceroItem(a);
+          const p = parseFloat(a.piezas) || 1;
+          const kgl = PESOS_VARILLA[a.numVarilla || "-"] || 0;
+          exportHtml += `<tr>
+            <td>${e.eje} - ${e.clave}</td>
+            <td>${a.tipo}</td>
+            <td style="text-align: center">#${a.numVarilla}</td>
+            <td style="text-align: center">${calc.mlPorPieza.toFixed(2)}</td>
+            <td style="text-align: center">${a.separacion || "-"}</td>
+            <td style="text-align: center">${p * pP}</td>
+            <td style="text-align: center">${(calc.ml * pP).toFixed(2)}</td>
+            <td style="text-align: center; mso-number-format:'0\\.000';">${kgl.toFixed(3)}</td>
+            <td style="text-align: center; font-weight: bold; color: #0891b2;">${(Math.round(calc.kg * pP * 100) / 100).toFixed(4)}</td>
+          </tr>`;
+        });
+      });
+      exportHtml += `</tbody></table>`;
+
+      exportFormattedExcel(exportHtml, `Analisis_Nervadura_M2`);
+    };
+
+    return (
+      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 animate-in fade-in zoom-in-95 duration-300 flex flex-col mb-8">
+        <div className="bg-cyan-800 text-white p-4 flex justify-between items-center shrink-0 rounded-t-3xl">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-cyan-700/50 rounded-lg border border-cyan-500/50">
+              <Calculator size={20} className="text-cyan-100" />
+            </div>
+            <div>
+              <h2 className="text-lg font-black uppercase tracking-wider leading-tight">
+                Análisis / m2 Nervadura y Losa Nervada
+              </h2>
+              <p className="text-[9px] text-cyan-300 font-bold uppercase tracking-widest">
+                {activePartida?.nombre}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowAnalysisNervadura(false)}
+            className="p-1.5 bg-cyan-700 hover:bg-cyan-600 rounded-full transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-4 grid grid-cols-1 xl:grid-cols-2 gap-6 bg-slate-50/50 min-h-[400px]">
+          <div className="flex flex-col border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm">
+            <div className="p-3 bg-slate-100 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="font-black text-slate-700 uppercase text-xs tracking-widest">
+                Elementos Disponibles
+              </h3>
+              {availableNervaduras.length > 0 && (
+                <button
+                  onClick={toggleAll}
+                  className="text-[10px] font-bold text-cyan-600 uppercase hover:underline"
+                >
+                  {nervaduraAnalysisSelection.length ===
+                  availableNervaduras.length
+                    ? "Deseleccionar Todos"
+                    : "Seleccionar Todos"}
+                </button>
+              )}
+            </div>
+            <div className="overflow-y-auto max-h-[400px] p-2">
+              {availableNervaduras.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 font-bold uppercase text-xs">
+                  No hay losas nervadas o nervaduras capturadas en este nivel.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {availableNervaduras.map((e) => (
+                    <div
+                      key={e.id}
+                      onClick={() => toggleSelection(e.id)}
+                      className={`p-2 border rounded-lg cursor-pointer flex items-center gap-3 transition-colors ${nervaduraAnalysisSelection.includes(e.id) ? "bg-cyan-50 border-cyan-200 shadow-sm" : "hover:bg-slate-50 border-transparent hover:border-slate-200"}`}
+                    >
+                      <button
+                        className={`w-5 h-5 rounded flex items-center justify-center shrink-0 ${nervaduraAnalysisSelection.includes(e.id) ? "bg-cyan-600 text-white" : "bg-slate-200 text-transparent"}`}
+                      >
+                        <CheckSquare size={14} />
+                      </button>
+                      <div className="flex-1 text-xs">
+                        <p className="font-bold text-slate-800">
+                          <span className="text-cyan-700">
+                            {e.tipo.toUpperCase()}
+                          </span>{" "}
+                          - {e.eje} - {e.clave}
+                        </p>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider">
+                          L: {e.largo} | A: {e.ancho} | H: {e.alto} | Pzas:{" "}
+                          {e.piezas}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="bg-white border text-center border-slate-200 rounded-2xl p-4 shadow-sm">
+              <label className="text-xs font-black text-slate-700 uppercase tracking-widest mb-2 block">
+                M2 Totales del Análisis
+              </label>
+              <input
+                type="number"
+                value={nervaduraAnalysisM2}
+                onChange={(e) => setNervaduraAnalysisM2(e.target.value)}
+                placeholder="0.00"
+                className="w-full text-center text-xl font-bold p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+              />
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl flex-1 shadow-sm flex flex-col overflow-hidden">
+              <div className="p-3 bg-slate-800 text-white flex justify-between items-center shrink-0">
+                <h3 className="font-black uppercase text-xs tracking-widest">
+                  Resultados del Análisis
+                </h3>
+                <button
+                  onClick={exportToExcelConfig}
+                  disabled={selectedElements.length === 0}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition ${selectedElements.length > 0 ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-slate-700 text-slate-400 cursor-not-allowed"}`}
+                >
+                  <FileSpreadsheet size={14} />
+                  Exportar a Excel
+                </button>
+              </div>
+
+              <div className="p-4 flex-1 overflow-y-auto flex flex-col gap-8">
+                <div>
+                  <h4 className="font-black text-slate-700 uppercase text-[10px] mb-2 tracking-widest border-b pb-1">
+                    Resumen General
+                  </h4>
+                  <table className="w-full text-left border-collapse text-[13px]">
+                    <thead className="bg-slate-100 text-slate-500 font-bold uppercase text-[9px]">
+                      <tr>
+                        <th className="p-2 border-b border-r">Concepto</th>
+                        <th className="p-2 border-b border-r text-center">
+                          Volumen Total
+                        </th>
+                        <th className="p-2 border-b text-center text-cyan-700">
+                          Cant. por m2
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-bold text-slate-700 text-[13px]">
+                      <tr className="hover:bg-slate-50">
+                        <td className="p-2 border-r">Vol. Casetones (m3)</td>
+                        <td className="p-2 border-r text-center">
+                          {totalCaseton.toFixed(4)}
+                        </td>
+                        <td className="p-2 text-center text-cyan-600 bg-cyan-50/30">
+                          {(m2Parsed > 0 ? totalCaseton / m2Parsed : 0).toFixed(
+                            4,
+                          )}
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-50">
+                        <td className="p-2 border-r">Concreto (m3)</td>
+                        <td className="p-2 border-r text-center">
+                          {totalConcreto.toFixed(4)}
+                        </td>
+                        <td className="p-2 text-center text-cyan-600 bg-cyan-50/30">
+                          {(m2Parsed > 0
+                            ? totalConcreto / m2Parsed
+                            : 0
+                          ).toFixed(4)}
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-50">
+                        <td className="p-2 border-r">Cimbra (m2)</td>
+                        <td className="p-2 border-r text-center">
+                          {totalCimbra.toFixed(4)}
+                        </td>
+                        <td className="p-2 text-center text-cyan-600 bg-cyan-50/30">
+                          {(m2Parsed > 0 ? totalCimbra / m2Parsed : 0).toFixed(
+                            4,
+                          )}
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-50">
+                        <td className="p-2 border-r">Cimbra Frontera (ml)</td>
+                        <td className="p-2 border-r text-center">
+                          {totalCimbraFrontera.toFixed(4)}
+                        </td>
+                        <td className="p-2 text-center text-cyan-600 bg-cyan-50/30">
+                          {(m2Parsed > 0
+                            ? totalCimbraFrontera / m2Parsed
+                            : 0
+                          ).toFixed(4)}
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-slate-50">
+                        <td className="p-2 border-r bg-slate-50" colSpan={3}>
+                          Acero Total por Calibre
+                        </td>
+                      </tr>
+                      {[3, 4, 5, 6, 8, 10].map((v) => (
+                        <tr
+                          key={`v-${v}`}
+                          className="hover:bg-slate-50"
+                        >
+                          <td className="p-2 border-r pl-6">Acero #{v} (kg)</td>
+                          <td className="p-2 border-r text-center">
+                            {acerosDetalle[v].toFixed(4)}
+                          </td>
+                          <td className="p-2 text-center text-cyan-600 bg-cyan-50/30">
+                            {(m2Parsed > 0
+                              ? acerosDetalle[v] / m2Parsed
+                              : 0
+                            ).toFixed(4)}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-100 font-black">
+                        <td className="p-2 border-r text-right">
+                          Acero Total (kg)
+                        </td>
+                        <td className="p-2 border-r text-center">
+                          {totalAceroVarilla.toFixed(4)}
+                        </td>
+                        <td className="p-2 text-center text-cyan-700 bg-cyan-100/50">
+                          {(m2Parsed > 0
+                            ? totalAceroVarilla / m2Parsed
+                            : 0
+                          ).toFixed(4)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <h4 className="font-black text-slate-700 uppercase text-[10px] mb-2 tracking-widest border-b pb-1">
+                    Generador de Concreto
+                  </h4>
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead className="bg-slate-100 text-slate-500 uppercase text-[9px]">
+                      <tr>
+                        <th className="p-1 border">Elemento</th>
+                        <th className="p-1 border text-center">Largo</th>
+                        <th className="p-1 border text-center">Ancho</th>
+                        <th className="p-1 border text-center">Alto</th>
+                        <th className="p-1 border text-center">Pzas</th>
+                        <th className="p-1 border text-center">Vol. Bruto</th>
+                        <th className="p-1 border text-center">
+                          Vol. Casetones
+                        </th>
+                        <th className="p-1 border text-center text-cyan-700">
+                          Concreto Neto (m3)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y text-slate-700 font-medium">
+                      {selectedElements
+                        .filter(
+                          (e) => (e.tipo || "").toLowerCase() !== "nervadura",
+                        )
+                        .map((e, i) => {
+                          const p = parseFloat(e.piezas) || 1;
+                          const volBruto =
+                            getEffectiveLargo(e) *
+                            (parseFloat(e.ancho) || 0) *
+                            (parseFloat(e.alto) || 0) *
+                            p;
+                          const volCaseton =
+                            (e.tipo || "").toLowerCase() === "losa nervada"
+                              ? getCasetonesTotalVol(e.casetones || [], p)
+                              : 0;
+                          return (
+                            <tr key={i} className="hover:bg-slate-50">
+                              <td className="p-1 border">
+                                {e.tipo} - {e.eje} - {e.clave}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {e.largo}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {e.ancho}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {e.alto}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {e.piezas}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {volBruto.toFixed(4)}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {volCaseton.toFixed(4)}
+                              </td>
+                              <td className="p-1 border text-center text-cyan-700 font-bold bg-cyan-50/30">
+                                {calcConcreto(e).toFixed(4)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <h4 className="font-black text-slate-700 uppercase text-[10px] mb-2 tracking-widest border-b pb-1">
+                    Generador de Cimbra
+                  </h4>
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead className="bg-slate-100 text-slate-500 uppercase text-[9px]">
+                      <tr>
+                        <th className="p-1 border">Elemento</th>
+                        <th className="p-1 border text-center">Largo</th>
+                        <th className="p-1 border text-center">Ancho</th>
+                        <th className="p-1 border text-center">Alto</th>
+                        <th className="p-1 border text-center">Pzas</th>
+                        <th className="p-1 border text-center">Descuenta</th>
+                        <th className="p-1 border text-center text-cyan-700">
+                          Cimbra (m2)
+                        </th>
+                        <th className="p-1 border text-center text-cyan-700">
+                          Cimbra Frontera (ml)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y text-slate-700 font-medium">
+                      {selectedElements
+                        .filter(
+                          (e) => (e.tipo || "").toLowerCase() !== "nervadura",
+                        )
+                        .map((e, i) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="p-1 border">
+                              {e.tipo} - {e.eje} - {e.clave}
+                            </td>
+                            <td className="p-1 border text-center">
+                              {e.largo}
+                            </td>
+                            <td className="p-1 border text-center">
+                              {e.ancho}
+                            </td>
+                            <td className="p-1 border text-center">{e.alto}</td>
+                            <td className="p-1 border text-center">
+                              {e.piezas}
+                            </td>
+                            <td className="p-1 border text-center">
+                              {e.descuentaCimbra || 0}
+                            </td>
+                            <td className="p-1 border text-center font-bold text-cyan-700 bg-cyan-50/30">
+                              {calcCimbra(e).toFixed(4)}
+                            </td>
+                            <td className="p-1 border text-center font-bold text-cyan-700 bg-cyan-50/30">
+                              {calcCimbraFrontera(e).toFixed(4)}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <h4 className="font-black text-slate-700 uppercase text-[10px] mb-2 tracking-widest border-b pb-1">
+                    Generador de Casetones
+                  </h4>
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead className="bg-slate-100 text-slate-500 uppercase text-[9px]">
+                      <tr>
+                        <th className="p-1 border">Elemento Padre</th>
+                        <th className="p-1 border text-center">Casetón</th>
+                        <th className="p-1 border text-center">Largo</th>
+                        <th className="p-1 border text-center">Ancho</th>
+                        <th className="p-1 border text-center">Alto</th>
+                        <th className="p-1 border text-center">Pzas</th>
+                        <th className="p-1 border text-center text-cyan-700">
+                          Volumen Total (m3)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y text-slate-700 font-medium">
+                      {selectedElements.filter(
+                        (e) =>
+                          (e.tipo || "").toLowerCase() === "losa nervada" &&
+                          e.casetones,
+                      ).length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="p-2 text-center text-slate-400"
+                          >
+                            Sin casetones en elementos seleccionados
+                          </td>
+                        </tr>
+                      )}
+                      {selectedElements
+                        .filter(
+                          (e) =>
+                            (e.tipo || "").toLowerCase() === "losa nervada" &&
+                            e.casetones,
+                        )
+                        .map((e) => {
+                          const pP = parseFloat(e.piezas) || 1;
+                          return e.casetones.map((c, i) => {
+                            const p = parseFloat(c.piezas) || 1;
+                            const l = parseFloat(c.largo) || 0;
+                            const an = parseFloat(c.ancho) || 0;
+                            const al = parseFloat(c.alto) || 0;
+                            const vol = l * an * al * p * pP;
+                            return (
+                              <tr
+                                key={`${e.id}-${i}`}
+                                className="hover:bg-slate-50"
+                              >
+                                <td className="p-1 border">
+                                  {e.eje} - {e.clave}
+                                </td>
+                                <td className="p-1 border text-center">
+                                  {c.clave}
+                                </td>
+                                <td className="p-1 border text-center">
+                                  {c.largo}
+                                </td>
+                                <td className="p-1 border text-center">
+                                  {c.ancho}
+                                </td>
+                                <td className="p-1 border text-center">
+                                  {c.alto}
+                                </td>
+                                <td className="p-1 border text-center">
+                                  {p * pP}
+                                </td>
+                                <td className="p-1 border text-center font-bold text-cyan-700 bg-cyan-50/30">
+                                  {vol.toFixed(4)}
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <h4 className="font-black text-slate-700 uppercase text-[10px] mb-2 tracking-widest border-b pb-1">
+                    Generador de Acero
+                  </h4>
+                  <table className="w-full text-left border-collapse text-[10px]">
+                    <thead className="bg-slate-100 text-slate-500 uppercase text-[9px]">
+                      <tr>
+                        <th className="p-1 border">Elemento Padre</th>
+                        <th className="p-1 border text-center">Refuerzo</th>
+                        <th className="p-1 border text-center"># Var.</th>
+                        <th className="p-1 border text-center">L (m)</th>
+                        <th className="p-1 border text-center">Sep (m)</th>
+                        <th className="p-1 border text-center">Pzas</th>
+                        <th className="p-1 border text-center">Total ML</th>
+                        <th className="p-1 border text-center">Peso (kg/ml)</th>
+                        <th className="p-1 border text-center text-cyan-700">
+                          Total KG
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y text-slate-700 font-medium">
+                      {selectedElements.filter(
+                        (e) => e.aceros && e.aceros.length > 0,
+                      ).length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={9}
+                            className="p-2 text-center text-slate-400"
+                          >
+                            Sin acero en elementos seleccionados
+                          </td>
+                        </tr>
+                      )}
+                      {selectedElements.map((e) => {
+                        const pP = parseFloat(e.piezas) || 1;
+                        let acerosCorregidos = e.aceros || [];
+                        const validTypesOptions = getSteelTypesForElement(
+                          e.tipo,
+                        );
+                        const validTypes = validTypesOptions.map((t) =>
+                          t.toLowerCase(),
+                        );
+                        if (validTypes.length > 0) {
+                          acerosCorregidos = acerosCorregidos.map((a) => {
+                            if (
+                              !validTypes.includes((a.tipo || "").toLowerCase())
+                            ) {
+                              return { ...a, tipo: validTypesOptions[0] };
+                            }
+                            return a;
+                          });
+                        }
+                        return acerosCorregidos.map((a, i) => {
+                          const calc = calcAceroItem(a);
+                          const p = parseFloat(a.piezas) || 1;
+                          const kgl = PESOS_VARILLA[a.numVarilla || "-"] || 0;
+                          return (
+                            <tr
+                              key={`${e.id}-${i}`}
+                              className="hover:bg-slate-50"
+                            >
+                              <td className="p-1 border">
+                                {e.eje} - {e.clave}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {a.tipo}
+                              </td>
+                              <td className="p-1 border text-center">
+                                #{a.numVarilla}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {calc.mlPorPieza.toFixed(2)}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {a.separacion || "-"}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {p * pP}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {(calc.ml * pP).toFixed(2)}
+                              </td>
+                              <td className="p-1 border text-center">
+                                {kgl.toFixed(3)}
+                              </td>
+                              <td className="p-1 border text-center font-bold text-cyan-700 bg-cyan-50/30">
+                                {(Math.round(calc.kg * pP * 100) / 100).toFixed(
+                                  4,
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderMetalStructureGenerator = () => {
+    const metalRows = metalEstructuras.filter(
+      (r) => r.tipo === activeMetalSubmodal,
+    );
+
+    const renderGlobalMetalReport = () => {
+      const METAL_ORDER = {
+        "Perfil HSS Cuadrado": 1,
+        "Perfil HSS Rectangular": 2,
+        "Viga IPR": 3,
+        "Viga IR": 4,
+        "Lámina Galvanizada": 5,
+        "Canales Tipo C": 6,
+        "Polín Monten": 7,
+        "Perfil PTR": 8,
+        "Perfiles OC": 9,
+        "Placas Metálicas": 99,
+      };
+
+      const sortedMetalEstructuras = [...metalEstructuras].sort((a, b) => {
+        return (METAL_ORDER[a.tipo] || 50) - (METAL_ORDER[b.tipo] || 50);
+      });
+
+      let grandTotal = 0;
+
+      let htmlForExport = `<table style="border-collapse: collapse; font-family: Arial, sans-serif; text-align: left;" border="1">
+          <thead>
+            <tr style="background-color: #2f5496; color: white; font-size: 14pt; font-weight: bold; text-align: center; height: 30pt;">
+              <th colspan="11">REPORTE GLOBAL DE ESTRUCTURA METÁLICA</th>
+            </tr>
+            <tr style="background-color: #f2f6fb; color: #2f5496; font-size: 8pt; font-weight: bold; text-align: center; height: 15pt;">
+              <th>Eje</th>
+              <th>Clave</th>
+              <th>Tipo</th>
+              <th>Pzas</th>
+              <th>Largo (m)</th>
+              <th>Ancho (m)</th>
+              <th>Medida/Espesor</th>
+              <th>Calibre/Peso</th>
+              <th>Peso ML/M2</th>
+              <th>Peso/pza</th>
+              <th>Peso Total (kg)</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+      return (
+        <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative">
+          <div className="flex-1 p-6 overflow-y-auto">
+            <h3 className="text-xl font-black text-slate-800 uppercase mb-4 flex items-center justify-between">
+              <span>Reporte Global de Estructura Metálica</span>
+              <button
+                onClick={() => {
+                  let exportHtml = htmlForExport;
+                  sortedMetalEstructuras.forEach((r) => {
+                    const { pzas, p, w } = getMetalRowWeights(r);
+                    const isArea =
+                      r.tipo === "Placas Metálicas" ||
+                      r.tipo === "Lámina Galvanizada";
+                    exportHtml += `<tr style="font-size: 8pt; text-align: center;">
+                      <td>${r.eje || "-"}</td>
+                      <td>${r.clave || "-"}</td>
+                      <td>${r.tipo}</td>
+                      <td>${pzas}</td>
+                      <td>${(parseFloat(r.largo) || 0).toFixed(2)}</td>
+                      <td>${isArea ? (parseFloat(r.ancho) || 1).toFixed(2) : "-"}</td>
+                      <td>${r.tipo === "Viga IR" ? "-" : r.medidaNominal || "-"}</td>
+                      <td>${r.calibre || "-"}</td>
+                      <td>${p.toFixed(3)}</td>
+                      <td>${pzas > 0 ? (w / pzas).toFixed(2) : "0.00"}</td>
+                      <td style="font-weight: bold; color: #1e40af;">${w.toFixed(2)}</td>
+                    </tr>`;
+                  });
+                  exportHtml += `</tbody></table>`;
+                  const finalTotal = sortedMetalEstructuras.reduce(
+                    (acc, r) => acc + getMetalRowWeights(r).w,
+                    0,
+                  );
+                  const descalibre = finalTotal * 0.04;
+                  exportHtml += `<br/><table style="border-collapse: collapse; font-family: Arial, sans-serif; text-align: left;" border="1">
+                    <tbody>
+                      <tr><th style="background-color: #deebf7; color: #2f5496;">Subtotal Estructura Metálica</th><td style="font-weight: bold;">${finalTotal.toFixed(2)} kg</td></tr>
+                      <tr><th style="background-color: #fdf3e8; color: #c65911;">Descalibre/Desperdicio (4%)</th><td style="font-weight: bold;">${descalibre.toFixed(2)} kg</td></tr>
+                      <tr><th style="background-color: #deebf7; color: #2f5496;">Total Estructura Metálica</th><td style="font-weight: bold;">${(finalTotal + descalibre).toFixed(2)} kg</td></tr>
+                    </tbody>
+                  </table>`;
+                  exportFormattedExcel(
+                    exportHtml,
+                    `Reporte_Global_Estructura_Metalica`,
+                  );
+                }}
+                className="px-4 py-2 bg-emerald-600 text-white text-xs font-black rounded-lg uppercase tracking-wider flex items-center gap-2 hover:bg-emerald-500 transition-colors shadow"
+              >
+                Exportar Excel
+              </button>
+            </h3>
+
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+              <table className="w-full text-left text-[10px] sm:text-xs">
+                <thead className="bg-slate-100 text-slate-700 font-black uppercase tracking-wider">
+                  <tr>
+                    <th className="p-3 border-b text-center">No.</th>
+                    <th className="p-3 border-b text-center">Eje</th>
+                    <th className="p-3 border-b text-center">Clave</th>
+                    <th className="p-3 border-b text-center">Tipo Elemento</th>
+                    <th className="p-3 border-b text-center">Pzas</th>
+                    <th className="p-3 border-b text-center">Largo (m)</th>
+                    <th className="p-3 border-b text-center">Ancho (m)</th>
+                    <th className="p-3 border-b text-center">Medida</th>
+                    <th className="p-3 border-b text-center">Calibre</th>
+                    <th className="p-3 border-b text-center">Peso ML/M2</th>
+                    <th className="p-3 border-b text-center bg-blue-50 text-blue-900">
+                      Peso Total (kg)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sortedMetalEstructuras.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={11}
+                        className="p-6 text-center text-slate-400 font-bold uppercase tracking-widest"
+                      >
+                        Aún no hay elementos metálicos registrados en este
+                        nivel.
+                      </td>
+                    </tr>
+                  )}
+                  {sortedMetalEstructuras.map((r, i) => {
+                    const { pzas, p, w } = getMetalRowWeights(r);
+                    grandTotal += w;
+                    return (
+                      <tr key={r.id} className="hover:bg-amber-50">
+                        <td className="p-3 text-center text-slate-400 font-bold">
+                          {i + 1}
+                        </td>
+                        <td className="p-3 text-center font-bold text-slate-700">
+                          {r.eje || "-"}
+                        </td>
+                        <td className="p-3 text-center font-bold text-slate-700">
+                          {r.clave || "-"}
+                        </td>
+                        <td className="p-3 text-center font-bold text-amber-700">
+                          {r.tipo}
+                        </td>
+                        <td className="p-3 text-center font-bold text-slate-700">
+                          {pzas}
+                        </td>
+                        <td className="p-3 text-center font-bold text-slate-700">
+                          {(parseFloat(r.largo) || 0).toFixed(2)}
+                        </td>
+                        <td className="p-3 text-center font-bold text-slate-700">
+                          {r.tipo === "Placas Metálicas" ||
+                          r.tipo === "Lámina Galvanizada"
+                            ? (parseFloat(r.ancho) || 1).toFixed(2)
+                            : "-"}
+                        </td>
+                        <td className="p-3 text-center font-bold text-slate-600">
+                          {r.tipo === "Viga IR" ? "-" : r.medidaNominal || "-"}
+                        </td>
+                        <td className="p-3 text-center font-bold text-slate-600">
+                          {r.calibre || "-"}
+                        </td>
+                        <td className="p-3 text-center font-black text-slate-500">
+                          {p.toFixed(3)}
+                        </td>
+                        <td className="p-3 text-center font-black text-blue-700 bg-blue-50/30">
+                          {w.toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-slate-100 p-6 flex flex-col md:flex-row gap-4 items-end justify-end border-t border-slate-200">
+            <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex flex-col min-w-[250px]">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                Subtotal Acero Estructural
+              </span>
+              <div className="flex items-baseline gap-2 justify-end">
+                <span className="text-2xl font-black text-slate-700 leading-none">
+                  {grandTotal.toFixed(2)}
+                </span>
+                <span className="text-xs font-black text-slate-400 uppercase">
+                  kg
+                </span>
+              </div>
+            </div>
+            <div className="bg-orange-50 rounded-2xl p-4 px-6 border border-orange-200 shadow-sm flex flex-col min-w-[250px]">
+              <span className="text-[10px] font-black text-orange-600 uppercase tracking-widest mb-1">
+                Descalibre/Consumo Adicional (4%)
+              </span>
+              <div className="flex items-baseline gap-2 justify-end">
+                <span className="text-2xl font-black text-orange-700 leading-none">
+                  {(grandTotal * 0.04).toFixed(2)}
+                </span>
+                <span className="text-xs font-black text-orange-400 uppercase">
+                  kg
+                </span>
+              </div>
+            </div>
+            <div className="bg-blue-600 rounded-2xl p-4 px-6 border border-blue-700 shadow-lg flex flex-col min-w-[250px]">
+              <span className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">
+                Total (+ 4% Merma)
+              </span>
+              <div className="flex items-baseline gap-2 justify-end">
+                <span className="text-3xl font-black text-white leading-none">
+                  {(grandTotal * 1.04).toFixed(2)}
+                </span>
+                <span className="text-sm font-black text-blue-300 uppercase">
+                  kg
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const updateMetalRow = (idx, fieldOrObj, value) => {
+      const realIdx = metalEstructuras.findIndex(
+        (r) => r.id === metalRows[idx].id,
+      );
+      if (realIdx === -1) return;
+      const copy = [...metalEstructuras];
+
+      if (typeof fieldOrObj === "object") {
+        copy[realIdx] = { ...copy[realIdx], ...fieldOrObj };
+      } else {
+        copy[realIdx] = { ...copy[realIdx], [fieldOrObj]: value };
+      }
+
+      updateActiveMetalEstructuras(copy);
+    };
+
+    const addMetalRow = () => {
+      let defaultMedida = '4"';
+      let defaultCalibre = "14";
+      let defaultAncho = "";
+      if (activeMetalSubmodal === "Viga IPR") {
+        defaultMedida = '4" X 4"';
+        defaultCalibre = "19.3";
+      } else if (activeMetalSubmodal === "Perfil HSS Cuadrado") {
+        defaultMedida = '4" x 4"';
+        defaultCalibre = '1/8"';
+      } else if (activeMetalSubmodal === "Perfil HSS Rectangular") {
+        defaultMedida = '8" x 4"';
+        defaultCalibre = '3/16"';
+      } else if (activeMetalSubmodal === "Perfil PTR") {
+        defaultMedida = '1" x 1"';
+        defaultCalibre = "14";
+      } else if (activeMetalSubmodal === "Placas Metálicas") {
+        defaultMedida = "-";
+        defaultCalibre = '1/4"';
+        defaultAncho = "1";
+      } else if (activeMetalSubmodal === "Lámina Galvanizada") {
+        defaultMedida = "R-72";
+        defaultCalibre = "26";
+        defaultAncho = "1";
+      } else if (activeMetalSubmodal === "Canales Tipo C") {
+        defaultMedida = '4"';
+        defaultCalibre = "8.04";
+      } else if (activeMetalSubmodal === "Perfiles OC") {
+        defaultMedida = '20"';
+        defaultCalibre = '0.500"';
+      } else if (activeMetalSubmodal === "Viga IR") {
+        defaultMedida = "152";
+        defaultCalibre = "12.7";
+      }
+      updateActiveMetalEstructuras([
+        ...metalEstructuras,
+        {
+          id: `ME-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          tipo: activeMetalSubmodal,
+          eje: "",
+          clave: "",
+          pzas: "1",
+          largo: "0",
+          ancho: defaultAncho,
+          medidaNominal: defaultMedida,
+          calibre: defaultCalibre,
+        },
+      ]);
+    };
+
+    const deleteMetalRow = (id) => {
+      updateActiveMetalEstructuras(metalEstructuras.filter((r) => r.id !== id));
+    };
+
+    let totalWeight = 0;
+    let totalWeightPolin = 0;
+    let totalWeightIPR = 0;
+    let totalWeightHSS = 0;
+    let totalWeightHSSRect = 0;
+    let totalWeightPlacas = 0;
+    let totalWeightPTR = 0;
+    let totalWeightLamina = 0;
+    let totalWeightCanalesC = 0;
+    let totalWeightPerfilesOC = 0;
+    let totalWeightVigaIR = 0;
+    metalRows.forEach((r) => {
+      let pzas = parseFloat(r.pzas);
+      if (isNaN(pzas)) pzas = 1;
+
+      let ancho = parseFloat(r.ancho);
+      if (isNaN(ancho)) ancho = 1; // used for m2 in Placas
+
+      if (r.tipo === "Polín Monten") {
+        const pd = POLIN_DATA[r.medidaNominal];
+        const p = pd?.pesos[r.calibre] || 0;
+        const w = (parseFloat(r.largo) || 0) * p * pzas;
+        totalWeight += w;
+        totalWeightPolin += w;
+      } else if (r.tipo === "Viga IPR") {
+        const pdList = IPR_DATA[r.medidaNominal] || [];
+        const item = pdList.find((x) => x.kg.toString() === r.calibre) ||
+          pdList[0] || { kg: 0 };
+        const w = (parseFloat(r.largo) || 0) * item.kg * pzas;
+        totalWeight += w;
+        totalWeightIPR += w;
+      } else if (r.tipo === "Perfil HSS Cuadrado") {
+        const pd = HSS_DATA[r.medidaNominal];
+        const p = pd?.pesos[r.calibre] || 0;
+        const w = (parseFloat(r.largo) || 0) * p * pzas;
+        totalWeight += w;
+        totalWeightHSS += w;
+      } else if (r.tipo === "Perfil HSS Rectangular") {
+        const pd = HSS_RECT_DATA[r.medidaNominal];
+        const p = pd?.pesos[r.calibre] || 0;
+        const w = (parseFloat(r.largo) || 0) * p * pzas;
+        totalWeight += w;
+        totalWeightHSSRect += w;
+      } else if (r.tipo === "Placas Metálicas") {
+        // Here calibre stores the espesor ('1"'), and 'largo' & 'ancho' calculate m2
+        const p = PLACAS_DATA[r.calibre] || 0;
+        const m2 = (parseFloat(r.largo) || 0) * ancho;
+        const w = m2 * p * pzas;
+        totalWeight += w;
+        totalWeightPlacas += w;
+      } else if (r.tipo === "Lámina Galvanizada") {
+        const pd = LAMINA_DATA[r.medidaNominal];
+        const p = pd?.pesos[r.calibre] || 0;
+        const m2 = (parseFloat(r.largo) || 0) * ancho;
+        const w = m2 * p * pzas;
+        totalWeight += w;
+        totalWeightLamina += w;
+      } else if (r.tipo === "Perfil PTR") {
+        const pd = PTR_DATA[r.medidaNominal];
+        const p = pd?.pesos[r.calibre] || 0;
+        const w = (parseFloat(r.largo) || 0) * p * pzas;
+        totalWeight += w;
+        totalWeightPTR += w;
+      } else if (r.tipo === "Canales Tipo C") {
+        const pd = CANALES_C_DATA[r.medidaNominal];
+        const p = pd?.pesos[r.calibre] || 0;
+        const w = (parseFloat(r.largo) || 0) * p * pzas;
+        totalWeight += w;
+        totalWeightCanalesC += w;
+      } else if (r.tipo === "Perfiles OC") {
+        const pd = PERFILES_OC_DATA[r.medidaNominal];
+        const p = pd?.pesos[r.calibre] || 0;
+        const w = (parseFloat(r.largo) || 0) * p * pzas;
+        totalWeight += w;
+        totalWeightPerfilesOC += w;
+      } else if (r.tipo === "Viga IR") {
+        const p = parseFloat(r.calibre) || 0;
+        const w = (parseFloat(r.largo) || 0) * p * pzas;
+        totalWeight += w;
+        totalWeightVigaIR += w;
+      }
+    });
+
+    return (
+      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 animate-in fade-in zoom-in-95 duration-300 flex flex-col min-h-[600px]">
+        <div className="bg-red-800 text-white p-4 flex justify-between items-center shrink-0 rounded-t-3xl">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-red-700/50 rounded-lg border border-red-600/50">
+              <Wrench size={20} className="text-red-200" />
+            </div>
+            <div>
+              <h2 className="text-lg font-black uppercase tracking-wider leading-tight">
+                Estructura Metálica
+              </h2>
+              <p className="text-[9px] text-red-300 font-bold uppercase tracking-widest">
+                {activePartida.nombre}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <select
+              value={activeLevelId}
+              onChange={(e) => {
+                setActiveLevelId(e.target.value);
+                setSelectedMetalRows([]);
+              }}
+              className="bg-[#450a0a] text-white font-black text-[10px] uppercase p-2 px-4 rounded-lg border border-red-600 outline-none cursor-pointer"
+            >
+              {niveles.map((n) => (
+                <option key={n.id} value={n.id} className="text-slate-800">
+                  {n.nombre}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => setShowMetalStructureGenerator(false)}
+              className="p-1.5 bg-red-700 hover:bg-red-600 rounded-full transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-1 overflow-hidden">
+          <div className="w-48 bg-slate-50 border-r border-slate-200 p-2 flex flex-col gap-2 shrink-0">
+            <button
+              onClick={() => setActiveMetalSubmodal("Polín Monten")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Polín Monten" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Polín Monten
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Viga IPR")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Viga IPR" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Viga IPR
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Perfil HSS Cuadrado")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Perfil HSS Cuadrado" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Perfil HSS Cuad.
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Perfil HSS Rectangular")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Perfil HSS Rectangular" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Perfil HSS Rect.
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Perfil PTR")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Perfil PTR" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Perfil PTR
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Placas Metálicas")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Placas Metálicas" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Placas Metálicas
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Lámina Galvanizada")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Lámina Galvanizada" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Lámina Galvanizada
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Canales Tipo C")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Canales Tipo C" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Canales Tipo C
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Perfiles OC")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Perfiles OC" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Perfiles OC
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Viga IR")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors ${activeMetalSubmodal === "Viga IR" ? "bg-red-600 text-white" : "bg-white text-slate-600 hover:bg-red-50 border border-slate-200"}`}
+            >
+              Viga IR
+            </button>
+            <button
+              onClick={() => setActiveMetalSubmodal("Reporte Global")}
+              className={`w-full text-left p-3 rounded-xl font-black text-xs uppercase cursor-pointer transition-colors mt-2 border-t-2 ${activeMetalSubmodal === "Reporte Global" ? "bg-amber-600 text-white border-amber-600" : "bg-white text-slate-800 hover:bg-amber-50 border-slate-200"}`}
+            >
+              Reporte Global
+            </button>
+          </div>
+
+          <div className="flex-1 flex flex-col relative overflow-hidden bg-white rounded-br-3xl">
+            {activeMetalSubmodal === "Reporte Global" ? (
+              renderGlobalMetalReport()
+            ) : (
+              <>
+                <div className="overflow-x-auto flex-1 p-4">
+                  <table className="text-xs text-left border-collapse w-full">
+                    <thead className="bg-slate-100 text-slate-700 uppercase tracking-wider select-none sticky top-0 z-10 font-black">
+                      <tr>
+                        <th className="p-2 border border-slate-200 text-center w-[40px]">
+                          No.
+                        </th>
+                        <th className="p-2 border border-slate-200 text-center">
+                          Eje
+                        </th>
+                        <th className="p-2 border border-slate-200 text-center">
+                          Clave
+                        </th>
+                        <th className="p-2 border border-slate-200 text-center">
+                          Pzas
+                        </th>
+                        <th className="p-2 border border-slate-200 text-center">
+                          Largo (m)
+                        </th>
+                        {activeMetalSubmodal === "Placas Metálicas" ||
+                        activeMetalSubmodal === "Lámina Galvanizada" ? (
+                          <>
+                            <th className="p-2 border border-slate-200 text-center">
+                              Ancho (m)
+                            </th>
+                            <th className="p-2 border border-slate-200 text-center">
+                              Área (m²)
+                            </th>
+                            <th className="p-2 border border-slate-200 text-center">
+                              {activeMetalSubmodal === "Lámina Galvanizada"
+                                ? "Perfil"
+                                : "Espesor"}
+                            </th>
+                            {activeMetalSubmodal === "Lámina Galvanizada" && (
+                              <th className="p-2 border border-slate-200 text-center">
+                                Calibre
+                              </th>
+                            )}
+                            <th className="p-2 border border-slate-200 text-center">
+                              Peso/m²
+                            </th>
+                          </>
+                        ) : (
+                          <>
+                            <th className="p-2 border border-slate-200 text-center">
+                              {activeMetalSubmodal === "Canales Tipo C" ||
+                              activeMetalSubmodal === "Viga IR"
+                                ? "Peralte"
+                                : activeMetalSubmodal === "Perfiles OC"
+                                  ? "Designación (tamaños)"
+                                  : "Medida Nominal"}
+                            </th>
+                            <th className="p-2 border border-slate-200 text-center">
+                              Dimensiones
+                            </th>
+                            <th className="p-2 border border-slate-200 text-center">
+                              {activeMetalSubmodal === "Canales Tipo C" ||
+                              activeMetalSubmodal === "Viga IR"
+                                ? "Peso (kg/m)"
+                                : activeMetalSubmodal === "Perfiles OC"
+                                  ? "Espesor (in)"
+                                  : "Calibre"}
+                            </th>
+                            <th className="p-2 border border-slate-200 text-center">
+                              Peso/ml
+                            </th>
+                          </>
+                        )}
+                        <th className="p-2 border border-slate-200 text-center bg-blue-50 text-blue-800">
+                          Peso/pza
+                        </th>
+                        <th className="p-2 border border-slate-200 text-center bg-blue-100 text-blue-900">
+                          Peso Total (kg)
+                        </th>
+                        <th className="p-2 border border-slate-200 text-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {metalRows.map((row, idx) => {
+                        let pesoMl = 0;
+                        let dimString = "-";
+                        let optionsCalibre = [];
+                        let optionsMedida = [];
+
+                        if (row.tipo === "Polín Monten") {
+                          const pd = POLIN_DATA[row.medidaNominal] || {
+                            dim: "-",
+                            pesos: {},
+                          };
+                          pesoMl = pd.pesos[row.calibre] || 0;
+                          dimString = pd.dim;
+                          optionsCalibre = Object.keys(pd.pesos).filter(
+                            (k) => pd.pesos[k] !== null,
+                          );
+                          optionsMedida = Object.keys(POLIN_DATA);
+                        } else if (row.tipo === "Viga IPR") {
+                          const pdList = IPR_DATA[row.medidaNominal] || [];
+                          const item = pdList.find(
+                            (x) => x.kg.toString() === row.calibre,
+                          ) ||
+                            pdList[0] || { kg: 0, h: 0 };
+                          pesoMl = item.kg;
+                          dimString = `H: ${item.h} mm`;
+                          optionsCalibre = pdList.map((x) => x.kg.toString());
+                          optionsMedida = Object.keys(IPR_DATA);
+                        } else if (row.tipo === "Perfil HSS Cuadrado") {
+                          const pd = HSS_DATA[row.medidaNominal] || {
+                            dim: "-",
+                            pesos: {},
+                          };
+                          pesoMl = pd.pesos[row.calibre] || 0;
+                          dimString = pd.dim;
+                          optionsCalibre = Object.keys(pd.pesos).filter(
+                            (k) => pd.pesos[k] !== null,
+                          );
+                          optionsMedida = Object.keys(HSS_DATA);
+                        } else if (row.tipo === "Perfil HSS Rectangular") {
+                          const pd = HSS_RECT_DATA[row.medidaNominal] || {
+                            dim: "-",
+                            pesos: {},
+                          };
+                          pesoMl = pd.pesos[row.calibre] || 0;
+                          dimString = pd.dim;
+                          optionsCalibre = Object.keys(pd.pesos).filter(
+                            (k) => pd.pesos[k] !== null,
+                          );
+                          optionsMedida = Object.keys(HSS_RECT_DATA);
+                        } else if (row.tipo === "Perfil PTR") {
+                          const pd = PTR_DATA[row.medidaNominal] || {
+                            dim: "-",
+                            pesos: {},
+                          };
+                          pesoMl = pd.pesos[row.calibre] || 0;
+                          dimString = pd.dim;
+                          optionsCalibre = Object.keys(pd.pesos).filter(
+                            (k) => pd.pesos[k] !== null,
+                          );
+                          optionsMedida = Object.keys(PTR_DATA);
+                        } else if (row.tipo === "Placas Metálicas") {
+                          pesoMl = PLACAS_DATA[row.calibre] || 0; // pesoMl here means pesoM2
+                          optionsCalibre = Object.keys(PLACAS_DATA);
+                        } else if (row.tipo === "Lámina Galvanizada") {
+                          const pd = LAMINA_DATA[row.medidaNominal] || {
+                            pesos: {},
+                          };
+                          pesoMl = pd.pesos[row.calibre] || 0;
+                          optionsCalibre = Object.keys(pd.pesos).filter(
+                            (k) => pd.pesos[k] !== null,
+                          );
+                          optionsMedida = Object.keys(LAMINA_DATA);
+                        } else if (row.tipo === "Canales Tipo C") {
+                          const pd = CANALES_C_DATA[row.medidaNominal] || {
+                            dim: "-",
+                            pesos: {},
+                          };
+                          pesoMl = pd.pesos[row.calibre] || 0;
+                          dimString = pd.dim;
+                          optionsCalibre = Object.keys(pd.pesos).filter(
+                            (k) => pd.pesos[k] !== null,
+                          );
+                          optionsMedida = Object.keys(CANALES_C_DATA);
+                        } else if (row.tipo === "Perfiles OC") {
+                          const pd = PERFILES_OC_DATA[row.medidaNominal] || {
+                            dim: "-",
+                            pesos: {},
+                          };
+                          pesoMl = pd.pesos[row.calibre] || 0;
+                          dimString = pd.dim;
+                          optionsCalibre = Object.keys(pd.pesos).filter(
+                            (k) => pd.pesos[k] !== null,
+                          );
+                          optionsMedida = Object.keys(PERFILES_OC_DATA);
+                        } else if (row.tipo === "Viga IR") {
+                          const pdList = VIGA_IR_DATA[row.medidaNominal] || [];
+                          pesoMl = parseFloat(row.calibre) || 0;
+                          dimString = "-";
+                          optionsCalibre = pdList.map((x) => x.toString());
+                          optionsMedida = Object.keys(VIGA_IR_DATA);
+                        }
+                        const pzas = isNaN(parseFloat(row.pzas))
+                          ? 1
+                          : parseFloat(row.pzas);
+
+                        let pesoPza = 0;
+                        if (
+                          row.tipo === "Placas Metálicas" ||
+                          row.tipo === "Lámina Galvanizada"
+                        ) {
+                          const w = parseFloat(row.ancho) || 0;
+                          const l = parseFloat(row.largo) || 0;
+                          pesoPza = w * l * pesoMl;
+                        } else {
+                          pesoPza = (parseFloat(row.largo) || 0) * pesoMl;
+                        }
+                        const totalKg = pesoPza * pzas;
+
+                        return (
+                          <tr
+                            key={row.id}
+                            className="hover:bg-slate-50 transition-colors group"
+                          >
+                            <td className="p-2 border border-slate-200 text-center text-[10px] text-slate-400 font-bold">
+                              {idx + 1}
+                            </td>
+                            <td className="p-0 border border-slate-200">
+                              <input
+                                type="text"
+                                className="w-full text-center p-2 bg-transparent outline-none uppercase font-bold"
+                                value={row.eje || ""}
+                                onChange={(e) =>
+                                  updateMetalRow(idx, "eje", e.target.value)
+                                }
+                              />
+                            </td>
+                            <td className="p-0 border border-slate-200">
+                              <input
+                                type="text"
+                                className="w-full text-center p-2 bg-transparent outline-none uppercase font-bold"
+                                value={row.clave || ""}
+                                onChange={(e) =>
+                                  updateMetalRow(idx, "clave", e.target.value)
+                                }
+                              />
+                            </td>
+                            <td className="p-0 border border-slate-200">
+                              <input
+                                type="number"
+                                className="w-full text-center p-2 bg-transparent outline-none font-bold text-slate-800"
+                                value={row.pzas !== undefined ? row.pzas : "1"}
+                                onChange={(e) =>
+                                  updateMetalRow(idx, "pzas", e.target.value)
+                                }
+                              />
+                            </td>
+                            <td className="p-0 border border-slate-200">
+                              <input
+                                type="number"
+                                className="w-full text-center p-2 bg-transparent outline-none font-bold"
+                                value={row.largo || ""}
+                                onChange={(e) =>
+                                  updateMetalRow(idx, "largo", e.target.value)
+                                }
+                              />
+                            </td>
+
+                            {row.tipo === "Placas Metálicas" ||
+                            row.tipo === "Lámina Galvanizada" ? (
+                              <>
+                                <td className="p-0 border border-slate-200">
+                                  <input
+                                    type="number"
+                                    className="w-full text-center p-2 bg-transparent outline-none font-bold"
+                                    value={
+                                      row.ancho !== undefined ? row.ancho : ""
+                                    }
+                                    onChange={(e) =>
+                                      updateMetalRow(
+                                        idx,
+                                        "ancho",
+                                        e.target.value,
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td className="p-2 border border-slate-200 text-center font-bold text-slate-500 whitespace-nowrap">
+                                  {(
+                                    (parseFloat(row.ancho) || 0) *
+                                    (parseFloat(row.largo) || 0)
+                                  ).toFixed(2)}
+                                </td>
+                                {row.tipo === "Lámina Galvanizada" && (
+                                  <td className="p-1 border border-slate-200 text-center">
+                                    <select
+                                      className="w-full text-center p-1 bg-transparent outline-none font-bold cursor-pointer"
+                                      value={row.medidaNominal}
+                                      onChange={(e) => {
+                                        const newMedida = e.target.value;
+                                        let newCalibre = row.calibre;
+                                        const newPd = LAMINA_DATA[newMedida];
+                                        if (
+                                          newPd &&
+                                          newPd.pesos[newCalibre] === undefined
+                                        ) {
+                                          newCalibre =
+                                            Object.keys(newPd.pesos).find(
+                                              (k) =>
+                                                newPd.pesos[k] !== undefined &&
+                                                newPd.pesos[k] !== null,
+                                            ) || "26";
+                                        }
+                                        updateMetalRow(idx, {
+                                          medidaNominal: newMedida,
+                                          calibre: newCalibre,
+                                        });
+                                      }}
+                                    >
+                                      {optionsMedida.map((m) => (
+                                        <option key={m} value={m}>
+                                          {m}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                )}
+                                <td className="p-1 border border-slate-200 text-center">
+                                  <select
+                                    className="w-full text-center p-1 bg-transparent outline-none font-bold cursor-pointer"
+                                    value={row.calibre}
+                                    onChange={(e) =>
+                                      updateMetalRow(
+                                        idx,
+                                        "calibre",
+                                        e.target.value,
+                                      )
+                                    }
+                                  >
+                                    {optionsCalibre.map((c) => (
+                                      <option key={c} value={c}>
+                                        {c}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="p-1 border border-slate-200 text-center">
+                                  <select
+                                    className="w-full text-center p-1 bg-transparent outline-none font-bold cursor-pointer"
+                                    value={row.medidaNominal}
+                                    onChange={(e) => {
+                                      const newMedida = e.target.value;
+                                      let newCalibre = row.calibre;
+                                      if (row.tipo === "Polín Monten") {
+                                        const newPd = POLIN_DATA[newMedida];
+                                        if (
+                                          newPd &&
+                                          newPd.pesos[newCalibre] === undefined
+                                        ) {
+                                          newCalibre =
+                                            Object.keys(newPd.pesos).find(
+                                              (k) =>
+                                                newPd.pesos[k] !== undefined &&
+                                                newPd.pesos[k] !== null,
+                                            ) || "14";
+                                        }
+                                      } else if (row.tipo === "Viga IPR") {
+                                        const newPdList =
+                                          IPR_DATA[newMedida] || [];
+                                        if (
+                                          !newPdList.find(
+                                            (x) =>
+                                              x.kg.toString() === newCalibre,
+                                          )
+                                        ) {
+                                          newCalibre = newPdList[0]
+                                            ? newPdList[0].kg.toString()
+                                            : "0";
+                                        }
+                                      } else if (
+                                        row.tipo === "Perfil HSS Cuadrado"
+                                      ) {
+                                        const newPd = HSS_DATA[newMedida];
+                                        if (
+                                          newPd &&
+                                          newPd.pesos[newCalibre] === undefined
+                                        ) {
+                                          newCalibre =
+                                            Object.keys(newPd.pesos).find(
+                                              (k) =>
+                                                newPd.pesos[k] !== undefined &&
+                                                newPd.pesos[k] !== null,
+                                            ) || '1/8"';
+                                        }
+                                      } else if (
+                                        row.tipo === "Perfil HSS Rectangular"
+                                      ) {
+                                        const newPd = HSS_RECT_DATA[newMedida];
+                                        if (
+                                          newPd &&
+                                          newPd.pesos[newCalibre] === undefined
+                                        ) {
+                                          newCalibre =
+                                            Object.keys(newPd.pesos).find(
+                                              (k) =>
+                                                newPd.pesos[k] !== undefined &&
+                                                newPd.pesos[k] !== null,
+                                            ) || '3/16"';
+                                        }
+                                      } else if (row.tipo === "Perfil PTR") {
+                                        const newPd = PTR_DATA[newMedida];
+                                        if (
+                                          newPd &&
+                                          newPd.pesos[newCalibre] === undefined
+                                        ) {
+                                          newCalibre =
+                                            Object.keys(newPd.pesos).find(
+                                              (k) =>
+                                                newPd.pesos[k] !== undefined &&
+                                                newPd.pesos[k] !== null,
+                                            ) || "14";
+                                        }
+                                      } else if (
+                                        row.tipo === "Canales Tipo C"
+                                      ) {
+                                        const newPd = CANALES_C_DATA[newMedida];
+                                        if (
+                                          newPd &&
+                                          newPd.pesos[newCalibre] === undefined
+                                        ) {
+                                          newCalibre =
+                                            Object.keys(newPd.pesos).find(
+                                              (k) =>
+                                                newPd.pesos[k] !== undefined &&
+                                                newPd.pesos[k] !== null,
+                                            ) || "8.04";
+                                        }
+                                      } else if (row.tipo === "Perfiles OC") {
+                                        const newPd =
+                                          PERFILES_OC_DATA[newMedida];
+                                        if (
+                                          newPd &&
+                                          newPd.pesos[newCalibre] === undefined
+                                        ) {
+                                          newCalibre =
+                                            Object.keys(newPd.pesos).find(
+                                              (k) =>
+                                                newPd.pesos[k] !== undefined &&
+                                                newPd.pesos[k] !== null,
+                                            ) || '0.500"';
+                                        }
+                                      } else if (row.tipo === "Viga IR") {
+                                        const newPdList =
+                                          VIGA_IR_DATA[newMedida] || [];
+                                        if (
+                                          !newPdList.includes(
+                                            parseFloat(newCalibre),
+                                          )
+                                        ) {
+                                          newCalibre = newPdList[0]
+                                            ? newPdList[0].toString()
+                                            : "0";
+                                        }
+                                      }
+                                      updateMetalRow(idx, {
+                                        medidaNominal: newMedida,
+                                        calibre: newCalibre,
+                                      });
+                                    }}
+                                  >
+                                    {optionsMedida.map((m) => (
+                                      <option key={m} value={m}>
+                                        {m}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="p-2 border border-slate-200 text-center font-bold text-slate-500 whitespace-nowrap">
+                                  {dimString}
+                                </td>
+                                <td className="p-1 border border-slate-200 text-center">
+                                  <select
+                                    className="w-full text-center p-1 bg-transparent outline-none font-bold cursor-pointer"
+                                    value={row.calibre}
+                                    onChange={(e) =>
+                                      updateMetalRow(
+                                        idx,
+                                        "calibre",
+                                        e.target.value,
+                                      )
+                                    }
+                                  >
+                                    {optionsCalibre.map((c) => (
+                                      <option key={c} value={c}>
+                                        {row.tipo === "Viga IPR" ||
+                                        row.tipo === "Canales Tipo C" ||
+                                        row.tipo === "Viga IR"
+                                          ? `${parseFloat(c).toFixed(1)} kg/m`
+                                          : c}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </td>
+                              </>
+                            )}
+                            <td className="p-2 border border-slate-200 text-center font-black text-blue-600">
+                              {pesoMl > 0 ? pesoMl.toFixed(3) : "-"}
+                            </td>
+                            <td className="p-2 border border-slate-200 text-center font-black text-blue-800">
+                              {pesoPza > 0 ? pesoPza.toFixed(2) : "-"}
+                            </td>
+                            <td className="p-2 border border-slate-200 text-center font-black bg-blue-100 text-blue-900">
+                              {totalKg > 0 ? totalKg.toFixed(2) : "-"}
+                            </td>
+                            <td className="p-1 border border-slate-200 text-center">
+                              <button
+                                onClick={() => deleteMetalRow(row.id)}
+                                className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      <tr>
+                        <td
+                          colSpan="12"
+                          className="p-2 border border-slate-200"
+                        >
+                          <button
+                            onClick={addMetalRow}
+                            className="w-full py-2 bg-slate-50 border border-slate-200 border-dashed rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <Plus size={14} /> Añadir Fila
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="bg-slate-50 p-4 border-t border-slate-200 flex flex-col gap-2 shrink-0 rounded-br-3xl">
+                  {totalWeightPolin > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Polín Monten
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightPolin.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {totalWeightIPR > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Viga IPR
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightIPR.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {totalWeightHSS > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Perfil HSS Cuad.
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightHSS.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {totalWeightHSSRect > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Perfil HSS Rect.
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightHSSRect.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {totalWeightPlacas > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Placas Metálicas
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightPlacas.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {totalWeightLamina > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Lámina Galvanizada
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightLamina.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {totalWeightPTR > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Perfil PTR
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightPTR.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {totalWeightCanalesC > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Canales Tipo C
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightCanalesC.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {totalWeightPerfilesOC > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Perfiles OC
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightPerfilesOC.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {totalWeightVigaIR > 0 && (
+                    <div className="flex justify-end w-full">
+                      <div className="bg-white rounded-2xl p-4 px-6 border border-slate-200 shadow-sm flex items-center gap-6 justify-between min-w-[300px]">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          Total Viga IR
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-black text-slate-800 leading-none">
+                            {totalWeightVigaIR.toFixed(2)}
+                          </span>
+                          <span className="text-sm font-black text-slate-400 uppercase">
+                            kg
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end w-full">
+                    <div className="bg-blue-600 rounded-2xl p-4 px-6 border border-blue-700 shadow-lg flex items-center gap-6 justify-between min-w-[300px]">
+                      <span className="text-[10px] font-black text-blue-200 uppercase tracking-widest">
+                        Peso Total
+                      </span>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-2xl font-black text-white leading-none">
+                          {totalWeight.toFixed(2)}
+                        </span>
+                        <span className="text-sm font-black text-blue-300 uppercase">
+                          kg
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-[#fcfdfe] font-sans text-slate-900 p-4 md:p-6 flex flex-col">
       {renderSteelSubmodal()}
@@ -5141,6 +8603,8 @@ function ProjectWorkspace({
                 setShowSettings(false);
                 setShowWallGenerator(false);
                 setShowStructureGenerator(false);
+                setShowMetalStructureGenerator(false);
+                setShowAnalysisNervadura(false);
                 setActiveWallSubmodal(null);
                 setActiveSteelSubmodal(null);
                 setActiveCasetonSubmodal(null);
@@ -5170,8 +8634,12 @@ function ProjectWorkspace({
                 Asset Management
               </span>
               <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 border border-slate-100 rounded-lg">
-                <div className={`w-1.5 h-1.5 rounded-full ${isSavingAny ? "bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-teal-500 shadow-[0_0_8px_rgba(20,184,166,0.3)]"}`}></div>
-                <span className={`text-[8px] font-black uppercase tracking-widest ${isSavingAny ? "text-amber-600" : "text-teal-600"}`}>
+                <div
+                  className={`w-1.5 h-1.5 rounded-full ${isSavingAny ? "bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-teal-500 shadow-[0_0_8px_rgba(20,184,166,0.3)]"}`}
+                ></div>
+                <span
+                  className={`text-[8px] font-black uppercase tracking-widest ${isSavingAny ? "text-amber-600" : "text-teal-600"}`}
+                >
                   {isSavingAny ? "Sincronizando..." : "Guardado"}
                 </span>
               </div>
@@ -5193,22 +8661,40 @@ function ProjectWorkspace({
             </div>
           </div>
           <div className="flex gap-3 flex-wrap">
-              <button
-                onClick={() => {
-                  setShowSettings(!showSettings);
-                  setShowWallGenerator(false);
-                  setShowStructureGenerator(false);
-                }}
-                className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg flex items-center gap-2 ${showSettings && !showWallGenerator && !showStructureGenerator ? "bg-blue-600 text-white" : "bg-white border text-slate-700 hover:bg-slate-50"}`}
-              >
-                <Settings size={16} /> Ajustes
-              </button>
             {activePartidaId && (
               <>
                 <button
                   onClick={() => {
-                    setShowStructureGenerator(!showStructureGenerator);
+                    setShowAnalysisNervadura(!showAnalysisNervadura);
+                    setShowMetalStructureGenerator(false);
                     setShowWallGenerator(false);
+                    setShowStructureGenerator(false);
+                    setShowSettings(false);
+                  }}
+                  className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all flex items-center gap-2 ${showAnalysisNervadura ? "bg-cyan-700 text-white" : "bg-white border text-slate-700 hover:bg-cyan-50"}`}
+                >
+                  <Calculator size={16} /> Analisis/m2 Nerv.
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMetalStructureGenerator(
+                      !showMetalStructureGenerator,
+                    );
+                    setShowAnalysisNervadura(false);
+                    setShowWallGenerator(false);
+                    setShowStructureGenerator(false);
+                    setShowSettings(false);
+                  }}
+                  className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all flex items-center gap-2 ${showMetalStructureGenerator ? "bg-red-700 text-white" : "bg-white border text-slate-700 hover:bg-red-50"}`}
+                >
+                  <Wrench size={16} /> Est. Metálica
+                </button>
+                <button
+                  onClick={() => {
+                    setShowStructureGenerator(!showStructureGenerator);
+                    setShowAnalysisNervadura(false);
+                    setShowWallGenerator(false);
+                    setShowMetalStructureGenerator(false);
                     setShowSettings(false);
                   }}
                   className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all flex items-center gap-2 ${showStructureGenerator ? "bg-amber-600 text-white" : "bg-white border text-slate-700 hover:bg-amber-50"}`}
@@ -5218,7 +8704,9 @@ function ProjectWorkspace({
                 <button
                   onClick={() => {
                     setShowWallGenerator(!showWallGenerator);
+                    setShowAnalysisNervadura(false);
                     setShowStructureGenerator(false);
+                    setShowMetalStructureGenerator(false);
                     setShowSettings(false);
                   }}
                   className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all flex items-center gap-2 ${showWallGenerator ? "bg-indigo-700 text-white" : "bg-white border text-slate-700 hover:bg-indigo-50"}`}
@@ -5227,11 +8715,27 @@ function ProjectWorkspace({
                 </button>
               </>
             )}
+            <button
+              onClick={() => {
+                setShowSettings(!showSettings);
+                setShowAnalysisNervadura(false);
+                setShowWallGenerator(false);
+                setShowStructureGenerator(false);
+                setShowMetalStructureGenerator(false);
+              }}
+              className={`px-4 py-2.5 rounded-xl font-black uppercase text-[10px] shadow-lg flex items-center gap-2 ${showSettings && !showWallGenerator && !showStructureGenerator && !showMetalStructureGenerator && !showAnalysisNervadura ? "bg-blue-600 text-white" : "bg-white border text-slate-700 hover:bg-slate-50"}`}
+            >
+              <Settings size={16} /> Ajustes
+            </button>
           </div>
         </div>
       </header>
       <main className="max-w-7xl mx-auto w-full flex-1 relative">
-        {showStructureGenerator ? (
+        {showAnalysisNervadura ? (
+          renderAnalysisNervadura()
+        ) : showMetalStructureGenerator ? (
+          renderMetalStructureGenerator()
+        ) : showStructureGenerator ? (
           <div className="bg-white rounded-3xl shadow-xl border border-gray-100 animate-in fade-in zoom-in-95 duration-300 flex flex-col">
             <div className="bg-amber-800 text-white p-4 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">
@@ -5270,7 +8774,9 @@ function ProjectWorkspace({
                 </button>
               </div>
             </div>
-            <div className="overflow-x-auto bg-white">
+            <div
+              className={`overflow-x-auto bg-white ${estructuras.length > 12 ? "max-h-[450px] overflow-y-auto overscroll-contain" : ""}`}
+            >
               <table className="text-left border-collapse text-xs table-fixed w-full min-w-[900px]">
                 <thead className="bg-slate-100 text-slate-500 font-black uppercase tracking-wider border-b-2 border-slate-200 text-[9px] sticky top-0 z-30">
                   <tr>
@@ -5374,7 +8880,35 @@ function ProjectWorkspace({
                       className="p-2 text-center border-l relative select-none bg-slate-100"
                       rowSpan={2}
                       style={{ width: structColWidths.action }}
-                    ></th>
+                    >
+                      <div className="flex justify-center items-center gap-1">
+                        <button
+                          onClick={handleCopySelectedStructures}
+                          className={`p-1 rounded transition-colors ${selectedStructureRows.length > 0 ? "text-blue-600 hover:bg-blue-100" : "text-slate-300 cursor-not-allowed"}`}
+                          disabled={selectedStructureRows.length === 0}
+                          title="Copiar Seleccionados"
+                        >
+                          <Copy size={14} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (selectedStructureRows.length > 0) {
+                              updateActiveEstructuras((prev) =>
+                                prev.filter(
+                                  (x) => !selectedStructureRows.includes(x.id),
+                                ),
+                              );
+                              setSelectedStructureRows([]);
+                            }
+                          }}
+                          className={`p-1 rounded transition-colors ${selectedStructureRows.length > 0 ? "text-red-500 hover:bg-red-50" : "text-slate-300 cursor-not-allowed"}`}
+                          disabled={selectedStructureRows.length === 0}
+                          title="Borrar Seleccionados"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </th>
                   </tr>
                   <tr>
                     <th
@@ -5476,9 +9010,19 @@ function ProjectWorkspace({
                             <option value="muro curvo">Muro Curvo</option>
                             <option value="losa">Losa</option>
                             <option value="losa nervada">Losa Nervada</option>
-                            <option value="losa de vigueta">Losa de Vigueta</option>
+                            <option value="losa de vigueta">
+                              Losa de Vigueta
+                            </option>
+                            <option value="escalera papelillo">
+                              Escalera Papelillo
+                            </option>
+                            <option value="rampa de escalera">
+                              Rampa de Escalera
+                            </option>
                             <option value="columna">Columna</option>
-                            <option value="columna circular">Columna Circular</option>
+                            <option value="columna circular">
+                              Columna Circular
+                            </option>
                             <option value="pilas">Pilas</option>
                             <option value="trabe">Trabe</option>
                             <option value="nervadura">Nervadura</option>
@@ -5542,18 +9086,14 @@ function ProjectWorkspace({
                           />
                         </td>
                         <td
-                          className="p-0 border-r bg-sky-50 transition-colors hover:bg-sky-100 cursor-pointer"
+                          className={`p-0 border-r ${e.tipo?.toLowerCase() === "losa nervada" ? "bg-sky-50 transition-colors hover:bg-sky-100 cursor-pointer" : e.tipo?.toLowerCase() === "nervadura" ? "bg-slate-50 cursor-not-allowed opacity-60" : "bg-sky-50 transition-colors"}`}
                           onClick={() =>
-                            ["losa nervada", "nervadura"].includes(
-                              e.tipo?.toLowerCase(),
-                            )
+                            e.tipo?.toLowerCase() === "losa nervada"
                               ? setActiveCasetonSubmodal(e.id)
                               : null
                           }
                         >
-                          {["losa nervada", "nervadura"].includes(
-                            e.tipo?.toLowerCase(),
-                          ) ? (
+                          {e.tipo?.toLowerCase() === "losa nervada" ? (
                             <div
                               className="w-full h-full p-1 text-center font-black text-sky-700 flex justify-center items-center gap-1 group"
                               title="Modificar Casetones"
@@ -5572,6 +9112,10 @@ function ProjectWorkspace({
                                 className="text-sky-400 group-hover:text-sky-600 transition-colors"
                               />
                             </div>
+                          ) : e.tipo?.toLowerCase() === "nervadura" ? (
+                            <div className="w-full h-full p-1 text-center font-black flex justify-center items-center text-sm cursor-not-allowed text-slate-500">
+                              -
+                            </div>
                           ) : (
                             <div className="w-full h-full p-1 text-center font-black text-sky-700 flex justify-center items-center text-sm cursor-default">
                               {concreto > 0 ? concreto.toFixed(2) : "-"}
@@ -5579,27 +9123,45 @@ function ProjectWorkspace({
                           )}
                         </td>
                         <td className="p-1 border-r text-center font-black text-amber-700 bg-amber-50 text-sm">
-                          {cimbra > 0 ? cimbra.toFixed(2) : "-"}
+                          {e.tipo?.toLowerCase() === "nervadura"
+                            ? "-"
+                            : cimbra > 0
+                              ? cimbra.toFixed(2)
+                              : "-"}
                         </td>
                         <td className="p-1 border-r text-center font-black text-orange-700 bg-orange-50 text-sm">
-                          {cimbraFrontera > 0 ? cimbraFrontera.toFixed(2) : "-"}
+                          {e.tipo?.toLowerCase() === "nervadura"
+                            ? "-"
+                            : cimbraFrontera > 0
+                              ? cimbraFrontera.toFixed(2)
+                              : "-"}
                         </td>
                         <td
-                          className={`p-0 border-r ${e.tipo?.toLowerCase() === "losa de vigueta" ? "bg-slate-50 cursor-not-allowed" : "bg-slate-100/50 hover:bg-slate-200 cursor-pointer"} transition-colors`}
+                          className={`p-0 border-r ${e.tipo?.toLowerCase() === "losa de vigueta" || e.tipo?.toLowerCase() === "losa nervada" ? "bg-slate-50 cursor-not-allowed" : "bg-slate-100/50 hover:bg-slate-200 cursor-pointer"} transition-colors`}
                           onClick={() => {
-                            if (e.tipo?.toLowerCase() !== "losa de vigueta") {
+                            if (
+                              e.tipo?.toLowerCase() !== "losa de vigueta" &&
+                              e.tipo?.toLowerCase() !== "losa nervada"
+                            ) {
                               setActiveSteelSubmodal(e.id);
                             }
                           }}
                         >
-                          <div className={`w-full h-full p-2 text-center font-black flex justify-center items-center gap-1 group ${e.tipo?.toLowerCase() === "losa de vigueta" ? "opacity-30" : "text-slate-700"}`}>
-                            {aceroKg > 0 ? (
+                          <div
+                            className={`w-full h-full p-2 text-center font-black flex justify-center items-center gap-1 group ${e.tipo?.toLowerCase() === "losa de vigueta" || e.tipo?.toLowerCase() === "losa nervada" ? "opacity-30" : "text-slate-700"}`}
+                          >
+                            {e.tipo?.toLowerCase() !== "losa de vigueta" &&
+                            e.tipo?.toLowerCase() !== "losa nervada" &&
+                            aceroKg > 0 ? (
                               <span className="text-sm">
                                 {aceroKg.toFixed(2)}
                               </span>
                             ) : (
                               <span className="text-slate-400 font-normal text-[10px]">
-                                0.00
+                                {e.tipo?.toLowerCase() === "losa de vigueta" ||
+                                e.tipo?.toLowerCase() === "losa nervada"
+                                  ? "-"
+                                  : "0.00"}
                               </span>
                             )}
                             <Wrench
@@ -5669,6 +9231,35 @@ function ProjectWorkspace({
                 className="px-6 py-2 border-2 border-dashed border-amber-300 text-amber-600 font-black rounded-lg hover:bg-amber-50 text-[10px] uppercase tracking-wider"
               >
                 + Agregar Elemento
+              </button>
+              <button
+                onClick={() =>
+                  updateActiveEstructuras((prev) => {
+                    const lastRow = prev[prev.length - 1];
+                    let currentClave = lastRow ? lastRow.clave : "";
+                    const newRows = [];
+                    for (let i = 0; i < 5; i++) {
+                      const next = getNextClaveValue(currentClave);
+                      newRows.push({
+                        id: `E-${Date.now()}-${i}`,
+                        eje: lastRow?.eje || "",
+                        clave: next,
+                        tipo: lastRow?.tipo || "",
+                        i: false,
+                        largo: "",
+                        ancho: "",
+                        alto: "",
+                        piezas: "1",
+                        aceros: [],
+                      });
+                      currentClave = next;
+                    }
+                    return [...prev, ...newRows];
+                  })
+                }
+                className="px-6 py-2 border-2 border-dashed border-amber-300 text-amber-600 font-black rounded-lg hover:bg-amber-50 text-[10px] uppercase tracking-wider"
+              >
+                + Agregar 5 Elementos
               </button>
               <button
                 onClick={handleCopySelectedStructures}
@@ -5743,11 +9334,12 @@ function ProjectWorkspace({
                          <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">ANCHO (M)</th>
                          <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">ALTO (M)</th>
                          <th rowspan="2" style="border: 1px solid #b4c6e7; vertical-align: middle;">PZAS</th>
-                         <th colspan="4" style="border: 1px solid #b4c6e7; background-color: #deebf7; color: #2f5496; vertical-align: middle;">VOLÚMENES / ÁREAS TOTALES</th>
+                         <th colspan="5" style="border: 1px solid #b4c6e7; background-color: #deebf7; color: #2f5496; vertical-align: middle;">VOLÚMENES / ÁREAS TOTALES</th>
                       </tr>
                       <tr style="font-size: 8pt; font-weight: bold; height: 15pt; text-align: center;">
                          <td style="border: none; background-color: #ffffff;"></td>
                          <th style="background-color: #deebf7; color: #2f5496; border: 1px solid #b4c6e7; vertical-align: middle;">CONCRETO (M3)</th>
+                         <th style="background-color: #deebf7; color: #2f5496; border: 1px solid #b4c6e7; vertical-align: middle;">CASETONES (M3)</th>
                          <th style="background-color: #fdf3e8; color: #c65911; border: 1px solid #b4c6e7; vertical-align: middle;">CIMBRA (M2)</th>
                          <th style="background-color: #fdf3e8; color: #c65911; border: 1px solid #b4c6e7; vertical-align: middle;">CIM. FRONT(ML)</th>
                          <th style="background-color: #f2f6fb; color: #44546a; border: 1px solid #b4c6e7; vertical-align: middle;">ACERO (KG)</th>
@@ -5759,6 +9351,8 @@ function ProjectWorkspace({
                     const cimbra = calcCimbra(e);
                     const cimbraFrontera = calcCimbraFrontera(e);
                     const aceroKg = calcAceroTotalKg(e.aceros, e.piezas);
+                    const isLosaNerv = (e.tipo || "").toLowerCase() === "losa nervada";
+                    const casetones = isLosaNerv ? getCasetonesTotalVol(e.casetones || [], e.piezas) : 0;
 
                     html += `<tr style="text-align: center; background-color: #ffffff; height: 15pt;">
                          <td style="border: none; background-color: #ffffff;"></td>
@@ -5772,6 +9366,7 @@ function ProjectWorkspace({
                          <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(e.alto)}</td>
                          <td style="border: 1px solid #b4c6e7; color: #000000; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(e.piezas || 1)}</td>
                          <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${concreto > 0 ? concreto.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #b4c6e7; color: #2f5496; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${casetones > 0 || isLosaNerv ? casetones.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #b4c6e7; color: #e36c09; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${cimbra > 0 ? cimbra.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #b4c6e7; color: #e36c09; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${cimbraFrontera > 0 ? cimbraFrontera.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #b4c6e7; color: #44546a; font-weight: bold; font-size: 8pt; vertical-align: middle; mso-number-format:'0\\.00';">${aceroKg > 0 ? aceroKg.toFixed(2) : "-"}</td>
@@ -5812,7 +9407,7 @@ function ProjectWorkspace({
                       <thead>
                          <tr style="height: 15pt;">
                             <td style="width: 30px; border: none;"></td>
-                            <th colspan="17" style="background-color: #e36c09; color: white; font-size: 12pt; padding: 6px; border: 1px solid #e36c09; vertical-align: middle;">
+                            <th colspan="20" style="background-color: #e36c09; color: white; font-size: 12pt; padding: 6px; border: 1px solid #e36c09; vertical-align: middle;">
                                DESGLOSE POR GRUPOS PARA GENERADORES
                             </th>
                          </tr>
@@ -5829,18 +9424,58 @@ function ProjectWorkspace({
                              <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">CIMB CURVA 3-6M</th>
                              <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">CIMB CURVA &gt;6M</th>
                              <th style="border: 1px solid #f8cbad; width: 140px; vertical-align: middle;">CIM. FRONT (ML)</th>
+                             <th style="border: 1px solid #f8cbad; width: 150px; vertical-align: middle;">CIMBRA ESCAL. (M2/ML)</th>
+                             <th style="border: 1px solid #f8cbad; width: 150px; vertical-align: middle;">CIMBRA RAMPA (M2/ML)</th>
+                             <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">ANDAMIAJE</th>
                             <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">OBTURACIÓN (M2)</th>
                             <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">MALLA REF. (M2)</th>
                             <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">PASOS MUROS (PZA)</th>
                             <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">EMPLAYER (M2)</th>
-                            <th style="border: 1px solid #f8cbad; width: 120px; vertical-align: middle;">ANDAMIAJE</th>
+                            <th style="border: 1px solid #f8cbad; width: 140px; vertical-align: middle;">ANCLAJES VERT. (PZA)</th>
                             <th style="border: 1px solid #f8cbad; width: 140px; vertical-align: middle;">ACERO TOTAL (KG)</th>
                          </tr>
                       </thead>
                       <tbody>`;
 
-                  Object.entries(estructuraSummary.breakdown).forEach(
-                    ([tipo, data]) => {
+                  const orderArr = [
+                    "Dado",
+                    "Zapatas",
+                    "Contratrabes",
+                    "Columnas",
+                    "Columnas Circulares",
+                    "Losas de Vigueta",
+                    "Losas Nervadas",
+                    "Losas",
+                    "Trabes",
+                    "Nervaduras",
+                    "Muros"
+                  ];
+                  Object.entries(estructuraSummary.breakdown)
+                    .sort(([tipoA, dataA], [tipoB, dataB]) => {
+                      if (dataA.isCimentacion && !dataB.isCimentacion)
+                        return -1;
+                      if (!dataA.isCimentacion && dataB.isCimentacion) return 1;
+                      
+                      const idxA = orderArr.indexOf(tipoA);
+                      const idxB = orderArr.indexOf(tipoB);
+                      
+                      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                      if (idxA !== -1) return -1;
+                      if (idxB !== -1) return 1;
+                      
+                      return tipoA.localeCompare(tipoB);
+                    })
+                    .forEach(([tipo, data]) => {
+                      const hasAnclajes =
+                        data.anclajesDetalle &&
+                        Object.values(data.anclajesDetalle).some((v) => v > 0);
+                      const anclajesStr = hasAnclajes
+                        ? Object.entries(data.anclajesDetalle)
+                            .filter(([, v]) => v > 0)
+                            .map(([k, v]) => `#${k}: ${v.toFixed(0)}`)
+                            .join("\n")
+                        : "-";
+
                       if (
                         data.concreto === 0 &&
                         data.cimbra === 0 &&
@@ -5860,7 +9495,8 @@ function ProjectWorkspace({
                         data.cimbraMuros_6_9 === 0 &&
                         data.cimbraColumnas_0_3 === 0 &&
                         data.cimbraColumnas_3_6 === 0 &&
-                        data.cimbraColumnas_6_9 === 0
+                        data.cimbraColumnas_6_9 === 0 &&
+                        !hasAnclajes
                       )
                         return;
                       const isCim = data.isCimentacion;
@@ -5869,36 +9505,39 @@ function ProjectWorkspace({
                         : data.concreto > 0
                           ? data.concreto.toFixed(2)
                           : "-";
-                      
-                      const isColumnGrp = tipo === "Columnas" || tipo === "Columnas Circulares";
-                      const andamiajeVal = isColumnGrp 
-                                            ? data.andamiajeColumnas 
-                                            : tipo === "Trabes" 
-                                              ? data.andamiajeTrabes 
-                                              : 0;
+
+                      const isColumnGrp =
+                        tipo === "Columnas" || tipo === "Columnas Circulares";
+                      const andamiajeVal = isColumnGrp
+                        ? data.andamiajeColumnas
+                        : tipo === "Trabes"
+                          ? data.andamiajeTrabes
+                          : 0;
 
                       html += `<tr style="text-align: center; background-color: #ffffff; height: 15pt;">
                          <td style="border: none;"></td>
                          <td style="border: 1px solid #f8cbad; font-weight: bold; text-align: left; padding-left: 8px; color: #000000; font-size: 10pt; vertical-align: middle;">${tipo}</td>
                          <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${concText}</td>
-                         <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.casetones > 0 ? data.casetones.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.casetones > 0 || tipo === "Losas Nervadas" ? data.casetones.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.cimbra > 0 && tipo !== "Muros" && !isColumnGrp ? data.cimbra.toFixed(2) : "-"}</td>
-                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${(tipo === "Muros" && data.cimbraMuros_0_3 > 0) ? data.cimbraMuros_0_3.toFixed(2) : (isColumnGrp && data.cimbraColumnas_0_3 > 0) ? data.cimbraColumnas_0_3.toFixed(2) : "-"}</td>
-                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${(tipo === "Muros" && data.cimbraMuros_3_6 > 0) ? data.cimbraMuros_3_6.toFixed(2) : (isColumnGrp && data.cimbraColumnas_3_6 > 0) ? data.cimbraColumnas_3_6.toFixed(2) : "-"}</td>
-                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${(tipo === "Muros" && data.cimbraMuros_6_9 > 0) ? data.cimbraMuros_6_9.toFixed(2) : (isColumnGrp && data.cimbraColumnas_6_9 > 0) ? data.cimbraColumnas_6_9.toFixed(2) : "-"}</td>
-                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${(tipo === "Muros" && data.cimbraMuroCurvo_0_3 > 0) ? data.cimbraMuroCurvo_0_3.toFixed(2) : "-"}</td>
-                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${(tipo === "Muros" && data.cimbraMuroCurvo_3_6 > 0) ? data.cimbraMuroCurvo_3_6.toFixed(2) : "-"}</td>
-                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${(tipo === "Muros" && data.cimbraMuroCurvo_6_9 > 0) ? data.cimbraMuroCurvo_6_9.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${tipo === "Muros" && data.cimbraMuros_0_3 > 0 ? data.cimbraMuros_0_3.toFixed(2) : isColumnGrp && data.cimbraColumnas_0_3 > 0 ? data.cimbraColumnas_0_3.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${tipo === "Muros" && data.cimbraMuros_3_6 > 0 ? data.cimbraMuros_3_6.toFixed(2) : isColumnGrp && data.cimbraColumnas_3_6 > 0 ? data.cimbraColumnas_3_6.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${tipo === "Muros" && data.cimbraMuros_6_9 > 0 ? data.cimbraMuros_6_9.toFixed(2) : isColumnGrp && data.cimbraColumnas_6_9 > 0 ? data.cimbraColumnas_6_9.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${tipo === "Muros" && data.cimbraMuroCurvo_0_3 > 0 ? data.cimbraMuroCurvo_0_3.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${tipo === "Muros" && data.cimbraMuroCurvo_3_6 > 0 ? data.cimbraMuroCurvo_3_6.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${tipo === "Muros" && data.cimbraMuroCurvo_6_9 > 0 ? data.cimbraMuroCurvo_6_9.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.cimbraFrontera > 0 ? data.cimbraFrontera.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.cimbraEscaleraPapelillo > 0 ? data.cimbraEscaleraPapelillo.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.cimbraRampaEscalera > 0 ? data.cimbraRampaEscalera.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle; ${isColumnGrp ? "" : `mso-number-format:'0\\.00';`}">${andamiajeVal > 0 ? (isColumnGrp ? andamiajeVal : andamiajeVal.toFixed(2)) : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.obturacionMuros > 0 ? data.obturacionMuros.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.mallaRefuerzo > 0 ? data.mallaRefuerzo.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle;">${data.pasosMuros > 0 ? data.pasosMuros : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.emplayerColumnas > 0 ? data.emplayerColumnas.toFixed(2) : "-"}</td>
-                         <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle; ${isColumnGrp ? '' : `mso-number-format:'0\\.00';`}">${andamiajeVal > 0 ? (isColumnGrp ? andamiajeVal : andamiajeVal.toFixed(2)) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle;">${anclajesStr}</td>
                          <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.aceroKg > 0 ? data.aceroKg.toFixed(2) : "-"}</td>
                       </tr>`;
-                    },
-                  );
+                    });
                   html += `</tbody></table>`;
 
                   exportFormattedExcel(
@@ -6277,39 +9916,140 @@ function ProjectWorkspace({
                         </div>
                       </div>
                     )}
-                    {estructuraSummary.totalAceroEstructuraGlobal > 0 && (
+                    {Object.entries(estructuraSummary.breakdown).some(
+                      ([, data]) =>
+                        data.isCimentacion &&
+                        (data.cimbra > 0 || data.cimbraFrontera > 0),
+                    ) && (
+                      <div className="flex flex-wrap gap-4">
+                        {Object.entries(estructuraSummary.breakdown)
+                          .filter(
+                            ([, data]) =>
+                              data.isCimentacion &&
+                              (data.cimbra > 0 || data.cimbraFrontera > 0),
+                          )
+                          .sort(([tipoA], [tipoB]) =>
+                            tipoA.localeCompare(tipoB),
+                          )
+                          .map(([tipo, data]) => (
+                            <div
+                              key={tipo}
+                              className="bg-amber-50/50 border border-amber-200 rounded-xl p-3 flex flex-col items-center gap-3 shadow-sm flex-1 min-w-[200px] max-w-[280px]"
+                            >
+                              <div className="font-black text-amber-900 uppercase tracking-widest text-[10px] text-center w-full">
+                                {tipo}
+                              </div>
+                              <div className="flex flex-col gap-2 w-full">
+                                {data.cimbra > 0 && (
+                                  <div className="bg-amber-100 border border-amber-200 rounded-lg p-2.5 flex items-center justify-between gap-3 w-full shadow-sm">
+                                    <div>
+                                      <span className="block text-[8px] font-black text-amber-700 uppercase">
+                                        Cimbra
+                                      </span>
+                                      <span className="text-sm font-black text-amber-900">
+                                        {data.cimbra.toFixed(2)} m2/ml
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleCopyStructure(tipo, "cimbra")
+                                      }
+                                      className="text-amber-500 hover:text-amber-700"
+                                    >
+                                      <Clipboard size={14} />
+                                    </button>
+                                  </div>
+                                )}
+                                {data.cimbraFrontera > 0 && (
+                                  <div className="bg-orange-100 border border-orange-200 rounded-lg p-2.5 flex items-center justify-between gap-3 w-full shadow-sm">
+                                    <div>
+                                      <span className="block text-[8px] font-black text-orange-700 uppercase">
+                                        Cim. Frontera
+                                      </span>
+                                      <span className="text-sm font-black text-orange-900">
+                                        {data.cimbraFrontera.toFixed(2)} ml
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleCopyStructure(
+                                          tipo,
+                                          "cimbraFrontera",
+                                        )
+                                      }
+                                      className="text-orange-500 hover:text-orange-700"
+                                    >
+                                      <Clipboard size={14} />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                    {(estructuraSummary.totalAceroEstructuraGlobal > 0 ||
+                      estructuraSummary.totalConcretoEstructura > 0) && (
                       <div className="bg-blue-50/50 border border-blue-200 rounded-2xl p-4 flex flex-col xl:flex-row items-center gap-4 shadow-sm">
                         <div className="font-black text-blue-900 uppercase tracking-widest text-sm w-40 shrink-0 flex flex-col">
-                          <span>Acero Estructura</span>
+                          <span>Acero y Concreto en Estructura</span>
                           <span className="text-[8px] opacity-60">
-                            (Losas, Trabes, Col, Col. Circ, Nerv)
+                            (Losas, Trabes, Col, Col. Circ, Nerv, Esc, Ramp)
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-3 flex-1">
-                          <div className="bg-slate-900 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-md border-b-2 border-blue-500">
-                            <div>
-                              <span className="block text-[8px] font-black text-blue-300 uppercase">
-                                Total Acero
-                              </span>
-                              <span className="text-sm font-black text-white">
-                                {estructuraSummary.totalAceroEstructuraGlobal.toFixed(
-                                  2,
-                                )}{" "}
-                                kg
-                              </span>
+                          {estructuraSummary.totalConcretoEstructura > 0 && (
+                            <div className="bg-white border border-blue-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                              <div>
+                                <span className="block text-[8px] font-black text-blue-600 uppercase">
+                                  Concreto Estructura
+                                </span>
+                                <span className="text-sm font-black text-slate-800">
+                                  {estructuraSummary.totalConcretoEstructura.toFixed(
+                                    2,
+                                  )}{" "}
+                                  m3
+                                </span>
+                              </div>
+                              <button
+                                onClick={() =>
+                                  handleCopyStructure(
+                                    "Concreto en Estructuras",
+                                    "concreto",
+                                  )
+                                }
+                                className="text-blue-400 hover:text-blue-600"
+                              >
+                                <Clipboard size={14} />
+                              </button>
                             </div>
-                            <button
-                              onClick={() =>
-                                handleCopyStructure(
-                                  "GLOBAL_ESTRUCTURA_ACERO",
-                                  "acero-total",
-                                )
-                              }
-                              className="text-blue-300 hover:text-white"
-                            >
-                              <Clipboard size={14} />
-                            </button>
-                          </div>
+                          )}
+                          {estructuraSummary.totalAceroEstructuraGlobal > 0 && (
+                            <div className="bg-slate-900 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-md border-b-2 border-blue-500">
+                              <div>
+                                <span className="block text-[8px] font-black text-blue-300 uppercase">
+                                  Total Acero
+                                </span>
+                                <span className="text-sm font-black text-white">
+                                  {estructuraSummary.totalAceroEstructuraGlobal.toFixed(
+                                    2,
+                                  )}{" "}
+                                  kg
+                                </span>
+                              </div>
+                              <button
+                                onClick={() =>
+                                  handleCopyStructure(
+                                    "GLOBAL_ESTRUCTURA_ACERO",
+                                    "acero-total",
+                                  )
+                                }
+                                className="text-blue-300 hover:text-white"
+                              >
+                                <Clipboard size={14} />
+                              </button>
+                            </div>
+                          )}
                           {Object.entries(
                             estructuraSummary.aceroEstructuraGlobalDetalle,
                           )
@@ -6343,14 +10083,222 @@ function ProjectWorkspace({
                         </div>
                       </div>
                     )}
-                    {Object.entries(estructuraSummary.breakdown).map(
-                      ([tipo, data]) => {
+                    {Object.entries(estructuraSummary.breakdown).some(
+                      ([tipo]) =>
+                        tipo === "Columnas" || tipo === "Columnas Circulares",
+                    ) && (
+                      <div className="flex flex-col md:flex-row gap-4 mt-4 w-full">
+                        {Object.entries(estructuraSummary.breakdown)
+                          .filter(
+                            ([tipo]) =>
+                              tipo === "Columnas" ||
+                              tipo === "Columnas Circulares",
+                          )
+                          .sort(([tipoA], [tipoB]) =>
+                            tipoA.localeCompare(tipoB),
+                          )
+                          .map(([tipo, data]) => {
+                            if (
+                              data.concreto === 0 &&
+                              data.cimbra === 0 &&
+                              data.cimbraColumnas_0_3 === 0 &&
+                              data.cimbraColumnas_3_6 === 0 &&
+                              data.cimbraColumnas_6_9 === 0 &&
+                              data.aceroKg === 0 &&
+                              data.andamiajeColumnas === 0 &&
+                              data.emplayerColumnas === 0
+                            )
+                              return null;
+
+                            return (
+                              <div
+                                key={tipo}
+                                className="bg-amber-50/30 border border-amber-100 rounded-2xl p-4 flex flex-col items-center gap-4 flex-1"
+                              >
+                                <div className="font-black text-amber-900 uppercase tracking-widest text-sm w-full text-center mb-2">
+                                  {tipo}
+                                </div>
+                                <div className="flex flex-col gap-3 w-full">
+                                  {data.concreto > 0 && (
+                                    <div className="bg-white border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 w-full shadow-sm">
+                                      <div>
+                                        <span className="block text-[8px] font-black text-amber-600 uppercase">
+                                          Concreto
+                                        </span>
+                                        <span className="text-sm font-black text-slate-800">
+                                          {data.concreto.toFixed(2)} m3
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={() =>
+                                          handleCopyStructure(tipo, "concreto")
+                                        }
+                                        className="text-amber-400 hover:text-amber-600"
+                                      >
+                                        <Clipboard size={14} />
+                                      </button>
+                                    </div>
+                                  )}
+                                  {data.cimbraColumnas_0_3 > 0 && (
+                                    <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 w-full shadow-sm">
+                                      <div>
+                                        <span className="block text-[8px] font-black text-amber-700 uppercase">
+                                          Cimbra 0-3m
+                                        </span>
+                                        <span className="text-sm font-black text-amber-900">
+                                          {data.cimbraColumnas_0_3.toFixed(2)}{" "}
+                                          m2/ml
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={() =>
+                                          handleCopyStructure(
+                                            tipo,
+                                            "cimbraColumnas_0_3",
+                                          )
+                                        }
+                                        className="text-amber-500 hover:text-amber-700"
+                                      >
+                                        <Clipboard size={14} />
+                                      </button>
+                                    </div>
+                                  )}
+                                  {data.cimbraColumnas_3_6 > 0 && (
+                                    <div className="bg-orange-100 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-4 w-full shadow-sm">
+                                      <div>
+                                        <span className="block text-[8px] font-black text-orange-700 uppercase">
+                                          Cimbra 3-6m
+                                        </span>
+                                        <span className="text-sm font-black text-orange-900">
+                                          {data.cimbraColumnas_3_6.toFixed(2)}{" "}
+                                          m2/ml
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={() =>
+                                          handleCopyStructure(
+                                            tipo,
+                                            "cimbraColumnas_3_6",
+                                          )
+                                        }
+                                        className="text-orange-500 hover:text-orange-700"
+                                      >
+                                        <Clipboard size={14} />
+                                      </button>
+                                    </div>
+                                  )}
+                                  {data.cimbraColumnas_6_9 > 0 && (
+                                    <div className="bg-red-100 border border-red-200 rounded-xl p-3 flex items-center justify-between gap-4 w-full shadow-sm">
+                                      <div>
+                                        <span className="block text-[8px] font-black text-red-700 uppercase">
+                                          Cimbra {">"} 6m
+                                        </span>
+                                        <span className="text-sm font-black text-red-900">
+                                          {data.cimbraColumnas_6_9.toFixed(2)}{" "}
+                                          m2/ml
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={() =>
+                                          handleCopyStructure(
+                                            tipo,
+                                            "cimbraColumnas_6_9",
+                                          )
+                                        }
+                                        className="text-red-500 hover:text-red-700"
+                                      >
+                                        <Clipboard size={14} />
+                                      </button>
+                                    </div>
+                                  )}
+                                  {data.andamiajeColumnas > 0 && (
+                                    <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 w-full shadow-sm">
+                                      <div>
+                                        <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                          Andamiaje
+                                        </span>
+                                        <span className="text-sm font-black text-slate-800">
+                                          {typeof data.andamiajeColumnas ===
+                                          "number"
+                                            ? data.andamiajeColumnas.toFixed(2)
+                                            : "Sí"}
+                                        </span>
+                                      </div>
+                                      {typeof data.andamiajeColumnas ===
+                                        "number" && (
+                                        <button
+                                          onClick={() =>
+                                            handleCopyStructure(
+                                              tipo,
+                                              "andamiajeColumnas",
+                                            )
+                                          }
+                                          className="text-slate-400 hover:text-slate-600"
+                                        >
+                                          <Clipboard size={14} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                  {data.emplayerColumnas > 0 && (
+                                    <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 w-full shadow-sm">
+                                      <div>
+                                        <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                          Emplayer
+                                        </span>
+                                        <span className="text-sm font-black text-slate-800">
+                                          {data.emplayerColumnas.toFixed(2)} m2
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={() =>
+                                          handleCopyStructure(
+                                            tipo,
+                                            "emplayerColumnas",
+                                          )
+                                        }
+                                        className="text-slate-400 hover:text-slate-600"
+                                      >
+                                        <Clipboard size={14} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                    {Object.entries(estructuraSummary.breakdown)
+                      .sort(([tipoA, dataA], [tipoB, dataB]) => {
+                        const orderArr = [
+                          "Dado",
+                          "Zapatas",
+                          "Contratrabes",
+                          "Columnas",
+                          "Columnas Circulares",
+                          "Losas de Vigueta",
+                          "Losas Nervadas",
+                          "Losas",
+                          "Trabes",
+                          "Nervaduras",
+                          "Muros"
+                        ];
+                        const idxA = orderArr.indexOf(tipoA);
+                        const idxB = orderArr.indexOf(tipoB);
+                        
+                        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                        if (idxA !== -1) return -1;
+                        if (idxB !== -1) return 1;
+                        
+                        return tipoA.localeCompare(tipoB);
+                      })
+                      .map(([tipo, data]) => {
                         if (
-                          data.isCimentacion &&
-                          data.cimbra === 0 &&
-                          data.cimbraFrontera === 0 &&
-                          data.excavacion === 0 &&
-                          data.relleno === 0
+                          data.isCimentacion ||
+                          tipo === "Concreto en Estructuras" ||
+                          tipo === "Columnas" ||
+                          tipo === "Columnas Circulares"
                         )
                           return null;
                         return (
@@ -6382,7 +10330,7 @@ function ProjectWorkspace({
                                   </button>
                                 </div>
                               )}
-                              {data.casetones > 0 && (
+                              {(data.casetones > 0 || tipo === "Losas Nervadas") && (
                                 <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
                                     <span className="block text-[8px] font-black text-sky-600 uppercase">
@@ -6402,21 +10350,49 @@ function ProjectWorkspace({
                                   </button>
                                 </div>
                               )}
-                              {data.cimbra > 0 && tipo !== "Muros" && tipo !== "Columnas" && tipo !== "Columnas Circulares" && (
-                                <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                              {data.cimbra > 0 &&
+                                tipo !== "Muros" &&
+                                tipo !== "Columnas" &&
+                                tipo !== "Columnas Circulares" && (
+                                  <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                    <div>
+                                      <span className="block text-[8px] font-black text-amber-700 uppercase">
+                                        {tipo === "Losas de Vigueta"
+                                          ? "Losa Vigueta"
+                                          : "Cimbra"}
+                                      </span>
+                                      <span className="text-sm font-black text-amber-900">
+                                        {data.cimbra.toFixed(2)} m2/ml
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleCopyStructure(tipo, "cimbra")
+                                      }
+                                      className="text-amber-500 hover:text-amber-700"
+                                    >
+                                      <Clipboard size={14} />
+                                    </button>
+                                  </div>
+                                )}
+                              {data.andamiajeTrabes > 0 && (
+                                <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
-                                    <span className="block text-[8px] font-black text-amber-700 uppercase">
-                                      Cimbra
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Andamiaje Trabes
                                     </span>
-                                    <span className="text-sm font-black text-amber-900">
-                                      {data.cimbra.toFixed(2)} m2/ml
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.andamiajeTrabes.toFixed(2)} ml
                                     </span>
                                   </div>
                                   <button
                                     onClick={() =>
-                                      handleCopyStructure(tipo, "cimbra")
+                                      handleCopyStructure(
+                                        tipo,
+                                        "andamiajeTrabes",
+                                      )
                                     }
-                                    className="text-amber-500 hover:text-amber-700"
+                                    className="text-slate-400 hover:text-slate-600"
                                   >
                                     <Clipboard size={14} />
                                   </button>
@@ -6432,7 +10408,15 @@ function ProjectWorkspace({
                                       {data.cimbraMuros_0_3.toFixed(2)} m2/ml
                                     </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraMuros_0_3")} className="text-amber-500 hover:text-amber-700">
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(
+                                        tipo,
+                                        "cimbraMuros_0_3",
+                                      )
+                                    }
+                                    className="text-amber-500 hover:text-amber-700"
+                                  >
                                     <Clipboard size={14} />
                                   </button>
                                 </div>
@@ -6447,7 +10431,15 @@ function ProjectWorkspace({
                                       {data.cimbraMuros_3_6.toFixed(2)} m2/ml
                                     </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraMuros_3_6")} className="text-orange-500 hover:text-orange-700">
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(
+                                        tipo,
+                                        "cimbraMuros_3_6",
+                                      )
+                                    }
+                                    className="text-orange-500 hover:text-orange-700"
+                                  >
                                     <Clipboard size={14} />
                                   </button>
                                 </div>
@@ -6462,171 +10454,348 @@ function ProjectWorkspace({
                                       {data.cimbraMuros_6_9.toFixed(2)} m2/ml
                                     </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraMuros_6_9")} className="text-red-500 hover:text-red-700">
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(
+                                        tipo,
+                                        "cimbraMuros_6_9",
+                                      )
+                                    }
+                                    className="text-red-500 hover:text-red-700"
+                                  >
                                     <Clipboard size={14} />
                                   </button>
                                 </div>
                               )}
-                              {tipo === "Muros" && data.cimbraMuroCurvo_0_3 > 0 && (
-                                <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
-                                  <div>
-                                    <span className="block text-[8px] font-black text-amber-700 uppercase">
-                                      Cimbra Curva 0-3m
-                                    </span>
-                                    <span className="text-sm font-black text-amber-900">
-                                      {data.cimbraMuroCurvo_0_3.toFixed(2)} m2/ml
-                                    </span>
+                              {tipo === "Muros" &&
+                                data.cimbraMuroCurvo_0_3 > 0 && (
+                                  <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                    <div>
+                                      <span className="block text-[8px] font-black text-amber-700 uppercase">
+                                        Cimbra Curva 0-3m
+                                      </span>
+                                      <span className="text-sm font-black text-amber-900">
+                                        {data.cimbraMuroCurvo_0_3.toFixed(2)}{" "}
+                                        m2/ml
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleCopyStructure(
+                                          tipo,
+                                          "cimbraMuroCurvo_0_3",
+                                        )
+                                      }
+                                      className="text-amber-500 hover:text-amber-700"
+                                    >
+                                      <Clipboard size={14} />
+                                    </button>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraMuroCurvo_0_3")} className="text-amber-500 hover:text-amber-700">
-                                    <Clipboard size={14} />
-                                  </button>
-                                </div>
-                              )}
-                              {tipo === "Muros" && data.cimbraMuroCurvo_3_6 > 0 && (
-                                <div className="bg-orange-100 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
-                                  <div>
-                                    <span className="block text-[8px] font-black text-orange-700 uppercase">
-                                      Cimbra Curva 3-6m
-                                    </span>
-                                    <span className="text-sm font-black text-orange-900">
-                                      {data.cimbraMuroCurvo_3_6.toFixed(2)} m2/ml
-                                    </span>
+                                )}
+                              {tipo === "Muros" &&
+                                data.cimbraMuroCurvo_3_6 > 0 && (
+                                  <div className="bg-orange-100 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                    <div>
+                                      <span className="block text-[8px] font-black text-orange-700 uppercase">
+                                        Cimbra Curva 3-6m
+                                      </span>
+                                      <span className="text-sm font-black text-orange-900">
+                                        {data.cimbraMuroCurvo_3_6.toFixed(2)}{" "}
+                                        m2/ml
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleCopyStructure(
+                                          tipo,
+                                          "cimbraMuroCurvo_3_6",
+                                        )
+                                      }
+                                      className="text-orange-500 hover:text-orange-700"
+                                    >
+                                      <Clipboard size={14} />
+                                    </button>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraMuroCurvo_3_6")} className="text-orange-500 hover:text-orange-700">
-                                    <Clipboard size={14} />
-                                  </button>
-                                </div>
-                              )}
-                              {tipo === "Muros" && data.cimbraMuroCurvo_6_9 > 0 && (
-                                <div className="bg-red-100 border border-red-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
-                                  <div>
-                                    <span className="block text-[8px] font-black text-red-700 uppercase">
-                                      Cimbra Curva {">"} 6m
-                                    </span>
-                                    <span className="text-sm font-black text-red-900">
-                                      {data.cimbraMuroCurvo_6_9.toFixed(2)} m2/ml
-                                    </span>
+                                )}
+                              {tipo === "Muros" &&
+                                data.cimbraMuroCurvo_6_9 > 0 && (
+                                  <div className="bg-red-100 border border-red-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                    <div>
+                                      <span className="block text-[8px] font-black text-red-700 uppercase">
+                                        Cimbra Curva {">"} 6m
+                                      </span>
+                                      <span className="text-sm font-black text-red-900">
+                                        {data.cimbraMuroCurvo_6_9.toFixed(2)}{" "}
+                                        m2/ml
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleCopyStructure(
+                                          tipo,
+                                          "cimbraMuroCurvo_6_9",
+                                        )
+                                      }
+                                      className="text-red-500 hover:text-red-700"
+                                    >
+                                      <Clipboard size={14} />
+                                    </button>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraMuroCurvo_6_9")} className="text-red-500 hover:text-red-700">
-                                    <Clipboard size={14} />
-                                  </button>
-                                </div>
-                              )}
-                              {(tipo === "Columnas" || tipo === "Columnas Circulares") && data.cimbraColumnas_0_3 > 0 && (
-                                <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
-                                  <div>
-                                    <span className="block text-[8px] font-black text-amber-700 uppercase">
-                                      Cimbra 0-3m
-                                    </span>
-                                    <span className="text-sm font-black text-amber-900">
-                                      {data.cimbraColumnas_0_3.toFixed(2)} m2/ml
-                                    </span>
+                                )}
+                              {(tipo === "Columnas" ||
+                                tipo === "Columnas Circulares") &&
+                                data.cimbraColumnas_0_3 > 0 && (
+                                  <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                    <div>
+                                      <span className="block text-[8px] font-black text-amber-700 uppercase">
+                                        Cimbra 0-3m
+                                      </span>
+                                      <span className="text-sm font-black text-amber-900">
+                                        {data.cimbraColumnas_0_3.toFixed(2)}{" "}
+                                        m2/ml
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleCopyStructure(
+                                          tipo,
+                                          "cimbraColumnas_0_3",
+                                        )
+                                      }
+                                      className="text-amber-500 hover:text-amber-700"
+                                    >
+                                      <Clipboard size={14} />
+                                    </button>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraColumnas_0_3")} className="text-amber-500 hover:text-amber-700">
-                                    <Clipboard size={14} />
-                                  </button>
-                                </div>
-                              )}
-                              {(tipo === "Columnas" || tipo === "Columnas Circulares") && data.cimbraColumnas_3_6 > 0 && (
-                                <div className="bg-orange-100 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
-                                  <div>
-                                    <span className="block text-[8px] font-black text-orange-700 uppercase">
-                                      Cimbra 3-6m
-                                    </span>
-                                    <span className="text-sm font-black text-orange-900">
-                                      {data.cimbraColumnas_3_6.toFixed(2)} m2/ml
-                                    </span>
+                                )}
+                              {(tipo === "Columnas" ||
+                                tipo === "Columnas Circulares") &&
+                                data.cimbraColumnas_3_6 > 0 && (
+                                  <div className="bg-orange-100 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                    <div>
+                                      <span className="block text-[8px] font-black text-orange-700 uppercase">
+                                        Cimbra 3-6m
+                                      </span>
+                                      <span className="text-sm font-black text-orange-900">
+                                        {data.cimbraColumnas_3_6.toFixed(2)}{" "}
+                                        m2/ml
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleCopyStructure(
+                                          tipo,
+                                          "cimbraColumnas_3_6",
+                                        )
+                                      }
+                                      className="text-orange-500 hover:text-orange-700"
+                                    >
+                                      <Clipboard size={14} />
+                                    </button>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraColumnas_3_6")} className="text-orange-500 hover:text-orange-700">
-                                    <Clipboard size={14} />
-                                  </button>
-                                </div>
-                              )}
-                              {(tipo === "Columnas" || tipo === "Columnas Circulares") && data.cimbraColumnas_6_9 > 0 && (
-                                <div className="bg-red-100 border border-red-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
-                                  <div>
-                                    <span className="block text-[8px] font-black text-red-700 uppercase">
-                                      Cimbra {">"} 6m
-                                    </span>
-                                    <span className="text-sm font-black text-red-900">
-                                      {data.cimbraColumnas_6_9.toFixed(2)} m2/ml
-                                    </span>
+                                )}
+                              {(tipo === "Columnas" ||
+                                tipo === "Columnas Circulares") &&
+                                data.cimbraColumnas_6_9 > 0 && (
+                                  <div className="bg-red-100 border border-red-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                    <div>
+                                      <span className="block text-[8px] font-black text-red-700 uppercase">
+                                        Cimbra {">"} 6m
+                                      </span>
+                                      <span className="text-sm font-black text-red-900">
+                                        {data.cimbraColumnas_6_9.toFixed(2)}{" "}
+                                        m2/ml
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        handleCopyStructure(
+                                          tipo,
+                                          "cimbraColumnas_6_9",
+                                        )
+                                      }
+                                      className="text-red-500 hover:text-red-700"
+                                    >
+                                      <Clipboard size={14} />
+                                    </button>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "cimbraColumnas_6_9")} className="text-red-500 hover:text-red-700">
-                                    <Clipboard size={14} />
-                                  </button>
-                                </div>
-                              )}
+                                )}
                               {data.obturacionMuros > 0 && (
                                 <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
-                                    <span className="block text-[8px] font-black text-slate-500 uppercase">Obturación Muros</span>
-                                    <span className="text-sm font-black text-slate-800">{data.obturacionMuros.toFixed(2)} m2/ml</span>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Obturación Muros
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.obturacionMuros.toFixed(2)} m2/ml
+                                    </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "obturacionMuros")} className="text-slate-400 hover:text-slate-600"><Clipboard size={14} /></button>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(
+                                        tipo,
+                                        "obturacionMuros",
+                                      )
+                                    }
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
                                 </div>
                               )}
                               {data.mallaRefuerzo > 0 && (
                                 <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
-                                    <span className="block text-[8px] font-black text-slate-500 uppercase">Malla Refuerzo</span>
-                                    <span className="text-sm font-black text-slate-800">{data.mallaRefuerzo.toFixed(2)} m2/ml</span>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Malla Refuerzo
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.mallaRefuerzo.toFixed(2)} m2/ml
+                                    </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "mallaRefuerzo")} className="text-slate-400 hover:text-slate-600"><Clipboard size={14} /></button>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(tipo, "mallaRefuerzo")
+                                    }
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
                                 </div>
                               )}
                               {data.pasosMuros > 0 && (
                                 <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
-                                    <span className="block text-[8px] font-black text-slate-500 uppercase">Pasos Muros</span>
-                                    <span className="text-sm font-black text-slate-800">{data.pasosMuros} pzas</span>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Pasos Muros
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.pasosMuros} pzas
+                                    </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "pasosMuros")} className="text-slate-400 hover:text-slate-600"><Clipboard size={14} /></button>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(tipo, "pasosMuros")
+                                    }
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
                                 </div>
                               )}
                               {data.emplayerColumnas > 0 && (
                                 <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
-                                    <span className="block text-[8px] font-black text-slate-500 uppercase">Emplayer</span>
-                                    <span className="text-sm font-black text-slate-800">{data.emplayerColumnas.toFixed(2)} m2</span>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Emplayer
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.emplayerColumnas.toFixed(2)} m2
+                                    </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "emplayerColumnas")} className="text-slate-400 hover:text-slate-600"><Clipboard size={14} /></button>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(
+                                        tipo,
+                                        "emplayerColumnas",
+                                      )
+                                    }
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
                                 </div>
                               )}
+                              {data.anclajesDetalle &&
+                                Object.entries(data.anclajesDetalle).map(
+                                  ([nv, pzas]) => (
+                                    <div
+                                      key={nv}
+                                      className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm"
+                                    >
+                                      <div>
+                                        <span className="block text-[8px] font-black text-indigo-500 uppercase">
+                                          Anclaje Var #{nv}
+                                        </span>
+                                        <span className="text-sm font-black text-indigo-900">
+                                          {pzas.toFixed(0)} pzas
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={() =>
+                                          handleCopyStructure(
+                                            tipo,
+                                            `anclajeVar_${nv}`,
+                                          )
+                                        }
+                                        className="text-indigo-400 hover:text-indigo-600"
+                                      >
+                                        <Clipboard size={14} />
+                                      </button>
+                                    </div>
+                                  ),
+                                )}
                               {data.andamiajeColumnas > 0 && (
                                 <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
-                                    <span className="block text-[8px] font-black text-slate-500 uppercase">Andamiaje Col ({">"}3m)</span>
-                                    <span className="text-sm font-black text-slate-800">{data.andamiajeColumnas} pzas</span>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Andamiaje Col ({">"}3m)
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.andamiajeColumnas} pzas
+                                    </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "andamiajeColumnas")} className="text-slate-400 hover:text-slate-600"><Clipboard size={14} /></button>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(
+                                        tipo,
+                                        "andamiajeColumnas",
+                                      )
+                                    }
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
                                 </div>
                               )}
-                              {data.andamiajeTrabes > 0 && (
-                                <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
-                                  <div>
-                                    <span className="block text-[8px] font-black text-slate-500 uppercase">Andamiaje Trabes</span>
-                                    <span className="text-sm font-black text-slate-800">{data.andamiajeTrabes.toFixed(2)} ml</span>
-                                  </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "andamiajeTrabes")} className="text-slate-400 hover:text-slate-600"><Clipboard size={14} /></button>
-                                </div>
-                              )}
-                              {data.excavacion > 0 && (
+                              {data.excavacion > 0 && !data.isCimentacion && (
                                 <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
-                                    <span className="block text-[8px] font-black text-amber-700 uppercase">Excavación</span>
-                                    <span className="text-sm font-black text-amber-900">{data.excavacion.toFixed(2)} m3</span>
+                                    <span className="block text-[8px] font-black text-amber-700 uppercase">
+                                      Excavación
+                                    </span>
+                                    <span className="text-sm font-black text-amber-900">
+                                      {data.excavacion.toFixed(2)} m3
+                                    </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "excavacion")} className="text-amber-500 hover:text-amber-700"><Clipboard size={14} /></button>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(tipo, "excavacion")
+                                    }
+                                    className="text-amber-500 hover:text-amber-700"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
                                 </div>
                               )}
-                              {data.relleno > 0 && (
+                              {data.relleno > 0 && !data.isCimentacion && (
                                 <div className="bg-orange-100 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
-                                    <span className="block text-[8px] font-black text-orange-700 uppercase">Relleno</span>
-                                    <span className="text-sm font-black text-orange-900">{data.relleno.toFixed(2)} m3</span>
+                                    <span className="block text-[8px] font-black text-orange-700 uppercase">
+                                      Relleno
+                                    </span>
+                                    <span className="text-sm font-black text-orange-900">
+                                      {data.relleno.toFixed(2)} m3
+                                    </span>
                                   </div>
-                                  <button onClick={() => handleCopyStructure(tipo, "relleno")} className="text-orange-500 hover:text-orange-700"><Clipboard size={14} /></button>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(tipo, "relleno")
+                                    }
+                                    className="text-orange-500 hover:text-orange-700"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
                                 </div>
                               )}
                               {data.cimbraFrontera > 0 && (
@@ -6652,6 +10821,52 @@ function ProjectWorkspace({
                                   </button>
                                 </div>
                               )}
+                              {data.cimbraEscaleraPapelillo > 0 && (
+                                <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                  <div>
+                                    <span className="block text-[8px] font-black text-amber-700 uppercase">
+                                      Cimbra Esc. Papelillo
+                                    </span>
+                                    <span className="text-sm font-black text-amber-900">
+                                      {data.cimbraEscaleraPapelillo.toFixed(2)} m2/ml
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(
+                                        tipo,
+                                        "cimbraEscaleraPapelillo",
+                                      )
+                                    }
+                                    className="text-amber-500 hover:text-amber-700"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
+                                </div>
+                              )}
+                              {data.cimbraRampaEscalera > 0 && (
+                                <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                  <div>
+                                    <span className="block text-[8px] font-black text-amber-700 uppercase">
+                                      Cimbra Rampa Esc.
+                                    </span>
+                                    <span className="text-sm font-black text-amber-900">
+                                      {data.cimbraRampaEscalera.toFixed(2)} m2/ml
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(
+                                        tipo,
+                                        "cimbraRampaEscalera",
+                                      )
+                                    }
+                                    className="text-amber-500 hover:text-amber-700"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
+                                </div>
+                              )}
                               {data.aceroKg > 0 &&
                                 !data.isCimentacion &&
                                 ![
@@ -6661,6 +10876,8 @@ function ProjectWorkspace({
                                   "nervadura",
                                   "columna",
                                   "columna circular",
+                                  "escalera papelillo",
+                                  "rampa de escalera",
                                 ].includes(data.tipoOriginal) && (
                                   <>
                                     <div className="bg-slate-900 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-md border-b-2 border-slate-500">
@@ -6719,87 +10936,517 @@ function ProjectWorkspace({
                             </div>
                           </div>
                         );
-                      },
-                    )}
+                      })}
                   </div>
                 </div>
               </div>
             </div>
           </div>
         ) : showWallGenerator ? (
-           <div className="bg-white rounded-3xl shadow-xl border border-gray-100 animate-in fade-in zoom-in-95 duration-300 flex flex-col">
-             <div className="bg-[#312e81] text-white p-4 flex justify-between items-center shrink-0">
-               <div className="flex items-center gap-3"><div className="p-2 bg-indigo-800/50 rounded-lg border border-indigo-600/50"><Building2 size={20} className="text-indigo-200" /></div><div><h2 className="text-lg font-black uppercase tracking-wider leading-tight">Matriz de Muros</h2><p className="text-[9px] text-indigo-300 font-bold uppercase tracking-widest">{activePartida.nombre}</p></div></div>
-               <div className="flex items-center gap-3"><select value={activeLevelId} onChange={(e) => setActiveLevelId(e.target.value)} className="bg-[#1e1b4b] text-white font-black text-[10px] uppercase p-2 px-4 rounded-lg border border-[#4338ca] outline-none cursor-pointer">{niveles.map(n => <option key={n.id} value={n.id} className="text-slate-800">{n.nombre}</option>)}</select><button onClick={() => setShowWallGenerator(false)} className="p-1.5 bg-[#4338ca] hover:bg-indigo-500 rounded-full transition-colors"><X size={20} /></button></div>
-             </div>
-             <div className="overflow-x-auto bg-white">
-               <table className="w-full text-left border-collapse text-[10px] xl:text-xs">
-                 <thead className="bg-slate-50 text-slate-500 font-black uppercase tracking-wider border-b-2 border-slate-200 sticky top-0 z-30 shadow-sm text-[9px] md:text-[10px]">
-                   <tr>
-                     <th className="p-2 text-center border-r border-slate-200 relative select-none bg-slate-50" rowSpan={2} style={{ width: wallColWidths.select || 40 }}><button onClick={toggleAllWallRows} className="hover:text-indigo-600 transition-colors">{muros.length > 0 && selectedWallRows.length === muros.length ? <CheckSquare size={14}/> : <Square size={14}/>}</button></th>
-                     <th className="p-2 text-center border-r border-slate-200" rowSpan={2}>No.</th><th className="p-2 border-r border-slate-200 text-center" rowSpan={2}>Eje</th><th className="p-2 border-r border-slate-200 text-center" rowSpan={2}>Clave</th><th className="p-2 text-center border-r border-slate-200 text-blue-700 bg-slate-50" rowSpan={2}>Largo</th><th className="p-2 text-center border-r border-slate-200 text-blue-700 bg-slate-50" rowSpan={2}>Ancho</th><th className="p-2 text-center border-r border-slate-200 text-blue-700 bg-slate-50" rowSpan={2}>Alto</th><th className="p-2 text-center border-r border-slate-200 bg-slate-200 text-slate-700" rowSpan={2}>Bruto</th><th className="p-2 text-center border-r border-slate-200 bg-red-50 text-red-600" rowSpan={2}>-Huecos</th><th className="p-2 text-center border-r border-slate-200 bg-orange-50 text-orange-600" rowSpan={2}>-Cast.</th><th className="p-2 text-center border-r border-slate-200 bg-emerald-100 text-emerald-800 font-black" rowSpan={2}>Neta</th>
-                     <th className="p-1 border-b border-r border-slate-200 text-center text-purple-700" colSpan={2}>Aplanado</th><th className="p-1 border-b border-r border-slate-200 text-center text-fuchsia-700" colSpan={2}>Recubrimiento</th><th className="p-2 text-center border-l border-slate-200" rowSpan={2}></th>
-                   </tr>
-                   <tr>
-                     <th className="p-1 border-r border-slate-200 text-center text-purple-700">C1</th><th className="p-1 border-r border-slate-200 text-center text-purple-700">C2</th><th className="p-1 border-r border-slate-200 text-center text-fuchsia-700">C1</th><th className="p-1 border-r border-slate-200 text-center text-fuchsia-700">C2</th>
-                   </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-100">
-                   {muros.map((m, i) => {
-                     const bruto = calcWallArea(m.largo, m.alto), dedH = getWallHuecosTotal(m.huecos), dedC = getWallCastillosTotal(m.castillos, m.alto), neto = Math.max(0, bruto - dedH - dedC);
-                     return (
-                       <tr key={m.id} className={`transition-colors ${selectedWallRows.includes(m.id) ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}>
-                         <td className="p-1 text-center border-r border-slate-200"><button onClick={() => toggleWallRow(m.id)} className={`${selectedWallRows.includes(m.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-indigo-500'} transition-colors`}>{selectedWallRows.includes(m.id) ? <CheckSquare size={14} /> : <Square size={14} />}</button></td>
-                         <td className="p-1.5 text-center font-black text-slate-400 border-r">{i + 1}</td>
-                         <td className="p-0 border-r"><DebouncedCell value={m.eje} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, eje: v} : x))} className="w-full p-2 bg-transparent font-bold uppercase outline-none text-[10px] md:text-xs text-center" /></td>
-                         <td className="p-0 border-r"><DebouncedCell value={m.clave} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, clave: v} : x))} className="w-full p-2 bg-transparent font-bold uppercase outline-none text-[10px] md:text-xs text-center" /></td>
-                         <td className="p-0 border-r bg-blue-50/10"><DebouncedCell value={m.largo} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, largo: v} : x))} className="w-full p-2 bg-transparent text-center text-blue-900 font-bold text-[10px] md:text-xs" /></td>
-                         <td className="p-0 border-r bg-blue-50/10"><DebouncedCell value={m.ancho} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, ancho: v} : x))} className="w-full p-2 bg-transparent text-center text-blue-900 font-bold text-[10px] md:text-xs" /></td>
-                         <td className="p-0 border-r bg-blue-50/10"><DebouncedCell value={m.alto} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, alto: v} : x))} className="w-full p-2 bg-transparent text-center text-blue-900 font-bold text-[10px] md:text-xs" /></td>
-                         <td className="p-2 border-r text-center font-black text-slate-500 bg-slate-50/50 text-[10px] md:text-xs">{bruto > 0 ? bruto.toFixed(2) : '-'}</td>
-                         <td className="p-0 border-r bg-red-50/30 hover:bg-red-100 transition-colors cursor-pointer" onClick={() => setActiveWallSubmodal({wallId: m.id, type: 'huecos'})}><div className="w-full h-full p-2 text-center font-black text-red-600 text-[10px] md:text-xs">{dedH > 0 ? dedH.toFixed(2) : '0.00'}</div></td>
-                         <td className="p-0 border-r bg-orange-50/30 hover:bg-orange-100 transition-colors cursor-pointer" onClick={() => setActiveWallSubmodal({wallId: m.id, type: 'castillos'})}><div className="w-full h-full p-2 text-center font-black text-orange-600 text-[10px] md:text-xs">{dedC > 0 ? dedC.toFixed(2) : '0.00'}</div></td>
-                         <td className="p-2 border-r text-center font-black text-emerald-700 bg-emerald-50 text-[10px] md:text-sm">{neto > 0 ? neto.toFixed(2) : '-'}</td>
-                         <td className="p-0 border-r"><DebouncedCell value={m.tipoAplanadoC1} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, tipoAplanadoC1: v} : x))} className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase" /></td>
-                         <td className="p-0 border-r"><DebouncedCell value={m.tipoAplanadoC2} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, tipoAplanadoC2: v} : x))} className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase" /></td>
-                         <td className="p-0 border-r"><DebouncedCell value={m.tipoRecubrimientoC1} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, tipoRecubrimientoC1: v} : x))} className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase" /></td>
-                         <td className="p-0 border-r"><DebouncedCell value={m.tipoRecubrimientoC2} onChange={v => updateActiveMuros(prev => prev.map(x => x.id === m.id ? {...x, tipoRecubrimientoC2: v} : x))} className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase" /></td>
-                         <td className="p-1 text-center border-l border-slate-200"><div className="flex justify-center items-center gap-0.5"><button onClick={() => handleCopyWallRow(m)} className="p-1 rounded text-slate-400 hover:text-indigo-600"><Copy size={14} /></button><button onClick={() => handlePasteWallRow(m.id)} disabled={!copiedWallRow} className="p-1 rounded text-slate-400 disabled:opacity-10"><ClipboardPaste size={14} /></button><button onClick={() => updateActiveMuros(prev => prev.filter(x => x.id !== m.id))} className="text-slate-300 hover:text-red-500 p-1"><Trash2 size={14} /></button></div></td>
-                       </tr>
-                     );
-                   })}
-                 </tbody>
-               </table>
-             </div>
-             <div className="p-4 bg-white border-t border-slate-100 flex gap-3 flex-wrap shrink-0">
-               <button onClick={() => updateActiveMuros(prev => { const lastRow = prev[prev.length - 1]; const nextClave = lastRow ? getNextClaveValue(lastRow.clave) : ''; return [...prev, { id: `M-${Date.now()}`, eje: lastRow?.eje || '', clave: nextClave, largo: '', ancho: '', alto: '', huecos: [], castillos: [], tipoAplanadoC1: '', tipoAplanadoC2: '', tipoRecubrimientoC1: '', tipoRecubrimientoC2: '' }]; })} className="px-6 py-2 border-2 border-dashed border-indigo-200 text-indigo-600 font-black rounded-lg hover:bg-indigo-50 text-[10px] uppercase tracking-wider">+ Agregar Muro</button>
-               <button onClick={handleCopySelectedWalls} className={`px-6 py-2 rounded-lg font-black text-[10px] uppercase flex items-center gap-2 transition-colors ${selectedWallRows.length > 0 ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}><Copy size={14}/> {copyStatus === 'copied-wall-list' ? '¡Copiado!' : selectedWallRows.length > 0 ? `Copiar (${selectedWallRows.length})` : 'Copiar Todas'}</button>
-               <button onClick={handlePasteSelectedWalls} disabled={!copiedWallRowsList || copiedWallRowsList.length === 0} className={`px-6 py-2 rounded-lg font-black text-[10px] uppercase flex items-center gap-2 transition-all ${copiedWallRowsList && copiedWallRowsList.length > 0 ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700 shadow-sm cursor-pointer' : 'bg-slate-50 text-slate-300 cursor-not-allowed'}`}><ClipboardPaste size={14}/> Pegar Datos</button>
-               <button onClick={() => {
-                   const levelNameExport = niveles.find(n=>n.id===activeLevelId)?.nombre||'TODOS LOS NIVELES';
-                   const renderExVal = (v) => {
-                       const num = parseFloat(v);
-                       if (isNaN(num) || num === 0) return '-';
-                       return num.toFixed(2);
-                   };
+          <div className="bg-white rounded-3xl shadow-xl border border-gray-100 animate-in fade-in zoom-in-95 duration-300 flex flex-col">
+            <div className="bg-[#312e81] text-white p-4 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-800/50 rounded-lg border border-indigo-600/50">
+                  <Building2 size={20} className="text-indigo-200" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black uppercase tracking-wider leading-tight">
+                    Matriz de Muros
+                  </h2>
+                  <p className="text-[9px] text-indigo-300 font-bold uppercase tracking-widest">
+                    {activePartida.nombre}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={activeLevelId}
+                  onChange={(e) => setActiveLevelId(e.target.value)}
+                  className="bg-[#1e1b4b] text-white font-black text-[10px] uppercase p-2 px-4 rounded-lg border border-[#4338ca] outline-none cursor-pointer"
+                >
+                  {niveles.map((n) => (
+                    <option key={n.id} value={n.id} className="text-slate-800">
+                      {n.nombre}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setShowWallGenerator(false)}
+                  className="p-1.5 bg-[#4338ca] hover:bg-indigo-500 rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+            <div
+              className={`overflow-x-auto bg-white ${muros.length > 12 ? "max-h-[450px] overflow-y-auto overscroll-contain" : ""}`}
+            >
+              <table className="w-full text-left border-collapse text-[10px] xl:text-xs">
+                <thead className="bg-slate-50 text-slate-500 font-black uppercase tracking-wider border-b-2 border-slate-200 sticky top-0 z-30 shadow-sm text-[9px] md:text-[10px]">
+                  <tr>
+                    <th
+                      className="p-2 text-center border-r border-slate-200 relative select-none bg-slate-50"
+                      rowSpan={2}
+                      style={{ width: wallColWidths.select || 40 }}
+                    >
+                      <button
+                        onClick={toggleAllWallRows}
+                        className="hover:text-indigo-600 transition-colors"
+                      >
+                        {muros.length > 0 &&
+                        selectedWallRows.length === muros.length ? (
+                          <CheckSquare size={14} />
+                        ) : (
+                          <Square size={14} />
+                        )}
+                      </button>
+                    </th>
+                    <th
+                      className="p-2 text-center border-r border-slate-200"
+                      rowSpan={2}
+                    >
+                      No.
+                    </th>
+                    <th
+                      className="p-2 border-r border-slate-200 text-center"
+                      rowSpan={2}
+                    >
+                      Eje
+                    </th>
+                    <th
+                      className="p-2 border-r border-slate-200 text-center"
+                      rowSpan={2}
+                    >
+                      Clave
+                    </th>
+                    <th
+                      className="p-2 text-center border-r border-slate-200 text-blue-700 bg-slate-50"
+                      rowSpan={2}
+                    >
+                      Largo
+                    </th>
+                    <th
+                      className="p-2 text-center border-r border-slate-200 text-blue-700 bg-slate-50"
+                      rowSpan={2}
+                    >
+                      Ancho
+                    </th>
+                    <th
+                      className="p-2 text-center border-r border-slate-200 text-blue-700 bg-slate-50"
+                      rowSpan={2}
+                    >
+                      Alto
+                    </th>
+                    <th
+                      className="p-2 text-center border-r border-slate-200 bg-slate-200 text-slate-700"
+                      rowSpan={2}
+                    >
+                      Bruto
+                    </th>
+                    <th
+                      className="p-2 text-center border-r border-slate-200 bg-red-50 text-red-600"
+                      rowSpan={2}
+                    >
+                      -Huecos
+                    </th>
+                    <th
+                      className="p-2 text-center border-r border-slate-200 bg-orange-50 text-orange-600"
+                      rowSpan={2}
+                    >
+                      -Cast.
+                    </th>
+                    <th
+                      className="p-2 text-center border-r border-slate-200 bg-emerald-100 text-emerald-800 font-black"
+                      rowSpan={2}
+                    >
+                      Neta
+                    </th>
+                    <th
+                      className="p-1 border-b border-r border-slate-200 text-center text-purple-700"
+                      colSpan={2}
+                    >
+                      Aplanado
+                    </th>
+                    <th
+                      className="p-1 border-b border-r border-slate-200 text-center text-fuchsia-700"
+                      colSpan={2}
+                    >
+                      Recubrimiento
+                    </th>
+                    <th
+                      className="p-2 text-center border-l border-slate-200"
+                      rowSpan={2}
+                    >
+                      <div className="flex justify-center items-center gap-1">
+                        <button
+                          onClick={handleCopySelectedWalls}
+                          className={`p-1 rounded transition-colors ${selectedWallRows.length > 0 ? "text-indigo-600 hover:bg-indigo-100" : "text-slate-300 cursor-not-allowed"}`}
+                          disabled={selectedWallRows.length === 0}
+                          title="Copiar Seleccionados"
+                        >
+                          <Copy size={14} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (selectedWallRows.length > 0) {
+                              updateActiveMuros((prev) =>
+                                prev.filter(
+                                  (x) => !selectedWallRows.includes(x.id),
+                                ),
+                              );
+                              setSelectedWallRows([]);
+                            }
+                          }}
+                          className={`p-1 rounded transition-colors ${selectedWallRows.length > 0 ? "text-red-500 hover:bg-red-50" : "text-slate-300 cursor-not-allowed"}`}
+                          disabled={selectedWallRows.length === 0}
+                          title="Borrar Seleccionados"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </th>
+                  </tr>
+                  <tr>
+                    <th className="p-1 border-r border-slate-200 text-center text-purple-700">
+                      C1
+                    </th>
+                    <th className="p-1 border-r border-slate-200 text-center text-purple-700">
+                      C2
+                    </th>
+                    <th className="p-1 border-r border-slate-200 text-center text-fuchsia-700">
+                      C1
+                    </th>
+                    <th className="p-1 border-r border-slate-200 text-center text-fuchsia-700">
+                      C2
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {muros.map((m, i) => {
+                    const bruto = calcWallArea(m.largo, m.alto),
+                      dedH = getWallHuecosTotal(m.huecos),
+                      dedC = getWallCastillosTotal(m.castillos, m.alto),
+                      neto = Math.max(0, bruto - dedH - dedC);
+                    return (
+                      <tr
+                        key={m.id}
+                        className={`transition-colors ${selectedWallRows.includes(m.id) ? "bg-indigo-50/50" : "hover:bg-slate-50"}`}
+                      >
+                        <td className="p-1 text-center border-r border-slate-200">
+                          <button
+                            onClick={() => toggleWallRow(m.id)}
+                            className={`${selectedWallRows.includes(m.id) ? "text-indigo-600" : "text-slate-300 hover:text-indigo-500"} transition-colors`}
+                          >
+                            {selectedWallRows.includes(m.id) ? (
+                              <CheckSquare size={14} />
+                            ) : (
+                              <Square size={14} />
+                            )}
+                          </button>
+                        </td>
+                        <td className="p-1.5 text-center font-black text-slate-400 border-r">
+                          {i + 1}
+                        </td>
+                        <td className="p-0 border-r">
+                          <DebouncedCell
+                            value={m.eje}
+                            onChange={(v) =>
+                              updateActiveMuros((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id ? { ...x, eje: v } : x,
+                                ),
+                              )
+                            }
+                            className="w-full p-2 bg-transparent font-bold uppercase outline-none text-[10px] md:text-xs text-center"
+                          />
+                        </td>
+                        <td className="p-0 border-r">
+                          <DebouncedCell
+                            value={m.clave}
+                            onChange={(v) =>
+                              updateActiveMuros((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id ? { ...x, clave: v } : x,
+                                ),
+                              )
+                            }
+                            className="w-full p-2 bg-transparent font-bold uppercase outline-none text-[10px] md:text-xs text-center"
+                          />
+                        </td>
+                        <td className="p-0 border-r bg-blue-50/10">
+                          <DebouncedCell
+                            value={m.largo}
+                            onChange={(v) =>
+                              updateActiveMuros((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id ? { ...x, largo: v } : x,
+                                ),
+                              )
+                            }
+                            className="w-full p-2 bg-transparent text-center text-blue-900 font-bold text-[10px] md:text-xs"
+                          />
+                        </td>
+                        <td className="p-0 border-r bg-blue-50/10">
+                          <DebouncedCell
+                            value={m.ancho}
+                            onChange={(v) =>
+                              updateActiveMuros((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id ? { ...x, ancho: v } : x,
+                                ),
+                              )
+                            }
+                            className="w-full p-2 bg-transparent text-center text-blue-900 font-bold text-[10px] md:text-xs"
+                          />
+                        </td>
+                        <td className="p-0 border-r bg-blue-50/10">
+                          <DebouncedCell
+                            value={m.alto}
+                            onChange={(v) =>
+                              updateActiveMuros((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id ? { ...x, alto: v } : x,
+                                ),
+                              )
+                            }
+                            className="w-full p-2 bg-transparent text-center text-blue-900 font-bold text-[10px] md:text-xs"
+                          />
+                        </td>
+                        <td className="p-2 border-r text-center font-black text-slate-500 bg-slate-50/50 text-[10px] md:text-xs">
+                          {bruto > 0 ? bruto.toFixed(2) : "-"}
+                        </td>
+                        <td
+                          className="p-0 border-r bg-red-50/30 hover:bg-red-100 transition-colors cursor-pointer"
+                          onClick={() =>
+                            setActiveWallSubmodal({
+                              wallId: m.id,
+                              type: "huecos",
+                            })
+                          }
+                        >
+                          <div className="w-full h-full p-2 text-center font-black text-red-600 text-[10px] md:text-xs">
+                            {dedH > 0 ? dedH.toFixed(2) : "0.00"}
+                          </div>
+                        </td>
+                        <td
+                          className="p-0 border-r bg-orange-50/30 hover:bg-orange-100 transition-colors cursor-pointer"
+                          onClick={() =>
+                            setActiveWallSubmodal({
+                              wallId: m.id,
+                              type: "castillos",
+                            })
+                          }
+                        >
+                          <div className="w-full h-full p-2 text-center font-black text-orange-600 text-[10px] md:text-xs">
+                            {dedC > 0 ? dedC.toFixed(2) : "0.00"}
+                          </div>
+                        </td>
+                        <td className="p-2 border-r text-center font-black text-emerald-700 bg-emerald-50 text-[10px] md:text-sm">
+                          {neto > 0 ? neto.toFixed(2) : "-"}
+                        </td>
+                        <td className="p-0 border-r">
+                          <DebouncedCell
+                            value={m.tipoAplanadoC1}
+                            onChange={(v) =>
+                              updateActiveMuros((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id
+                                    ? { ...x, tipoAplanadoC1: v }
+                                    : x,
+                                ),
+                              )
+                            }
+                            className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase"
+                          />
+                        </td>
+                        <td className="p-0 border-r">
+                          <DebouncedCell
+                            value={m.tipoAplanadoC2}
+                            onChange={(v) =>
+                              updateActiveMuros((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id
+                                    ? { ...x, tipoAplanadoC2: v }
+                                    : x,
+                                ),
+                              )
+                            }
+                            className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase"
+                          />
+                        </td>
+                        <td className="p-0 border-r">
+                          <DebouncedCell
+                            value={m.tipoRecubrimientoC1}
+                            onChange={(v) =>
+                              updateActiveMuros((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id
+                                    ? { ...x, tipoRecubrimientoC1: v }
+                                    : x,
+                                ),
+                              )
+                            }
+                            className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase"
+                          />
+                        </td>
+                        <td className="p-0 border-r">
+                          <DebouncedCell
+                            value={m.tipoRecubrimientoC2}
+                            onChange={(v) =>
+                              updateActiveMuros((prev) =>
+                                prev.map((x) =>
+                                  x.id === m.id
+                                    ? { ...x, tipoRecubrimientoC2: v }
+                                    : x,
+                                ),
+                              )
+                            }
+                            className="w-full p-2 bg-transparent text-center font-bold text-slate-700 text-[9px] md:text-[10px] uppercase"
+                          />
+                        </td>
+                        <td className="p-1 text-center border-l border-slate-200">
+                          <div className="flex justify-center items-center gap-0.5">
+                            <button
+                              onClick={() => handleCopyWallRow(m)}
+                              className="p-1 rounded text-slate-400 hover:text-indigo-600"
+                            >
+                              <Copy size={14} />
+                            </button>
+                            <button
+                              onClick={() => handlePasteWallRow(m.id)}
+                              disabled={!copiedWallRow}
+                              className="p-1 rounded text-slate-400 disabled:opacity-10"
+                            >
+                              <ClipboardPaste size={14} />
+                            </button>
+                            <button
+                              onClick={() =>
+                                updateActiveMuros((prev) =>
+                                  prev.filter((x) => x.id !== m.id),
+                                )
+                              }
+                              className="text-slate-300 hover:text-red-500 p-1"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 bg-white border-t border-slate-100 flex gap-3 flex-wrap shrink-0">
+              <button
+                onClick={() =>
+                  updateActiveMuros((prev) => {
+                    const lastRow = prev[prev.length - 1];
+                    const nextClave = lastRow
+                      ? getNextClaveValue(lastRow.clave)
+                      : "";
+                    return [
+                      ...prev,
+                      {
+                        id: `M-${Date.now()}`,
+                        eje: lastRow?.eje || "",
+                        clave: nextClave,
+                        largo: "",
+                        ancho: "",
+                        alto: "",
+                        huecos: [],
+                        castillos: [],
+                        tipoAplanadoC1: "",
+                        tipoAplanadoC2: "",
+                        tipoRecubrimientoC1: "",
+                        tipoRecubrimientoC2: "",
+                      },
+                    ];
+                  })
+                }
+                className="px-6 py-2 border-2 border-dashed border-indigo-200 text-indigo-600 font-black rounded-lg hover:bg-indigo-50 text-[10px] uppercase tracking-wider"
+              >
+                + Agregar Muro
+              </button>
+              <button
+                onClick={() =>
+                  updateActiveMuros((prev) => {
+                    const lastRow = prev[prev.length - 1];
+                    let currentClave = lastRow ? lastRow.clave : "";
+                    const newRows = [];
+                    for (let i = 0; i < 5; i++) {
+                      const next = getNextClaveValue(currentClave);
+                      newRows.push({
+                        id: `M-${Date.now()}-${i}`,
+                        eje: lastRow?.eje || "",
+                        clave: next,
+                        largo: "",
+                        ancho: "",
+                        alto: "",
+                        huecos: [],
+                        castillos: [],
+                        tipoAplanadoC1: "",
+                        tipoAplanadoC2: "",
+                        tipoRecubrimientoC1: "",
+                        tipoRecubrimientoC2: "",
+                      });
+                      currentClave = next;
+                    }
+                    return [...prev, ...newRows];
+                  })
+                }
+                className="px-6 py-2 border-2 border-dashed border-indigo-200 text-indigo-600 font-black rounded-lg hover:bg-indigo-50 text-[10px] uppercase tracking-wider"
+              >
+                + Agregar 5 Muros
+              </button>
+              <button
+                onClick={handleCopySelectedWalls}
+                className={`px-6 py-2 rounded-lg font-black text-[10px] uppercase flex items-center gap-2 transition-colors ${selectedWallRows.length > 0 ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md" : "bg-slate-100 hover:bg-slate-200 text-slate-600"}`}
+              >
+                <Copy size={14} />{" "}
+                {copyStatus === "copied-wall-list"
+                  ? "¡Copiado!"
+                  : selectedWallRows.length > 0
+                    ? `Copiar (${selectedWallRows.length})`
+                    : "Copiar Todas"}
+              </button>
+              <button
+                onClick={handlePasteSelectedWalls}
+                disabled={
+                  !copiedWallRowsList || copiedWallRowsList.length === 0
+                }
+                className={`px-6 py-2 rounded-lg font-black text-[10px] uppercase flex items-center gap-2 transition-all ${copiedWallRowsList && copiedWallRowsList.length > 0 ? "bg-emerald-100 hover:bg-emerald-200 text-emerald-700 shadow-sm cursor-pointer" : "bg-slate-50 text-slate-300 cursor-not-allowed"}`}
+              >
+                <ClipboardPaste size={14} /> Pegar Datos
+              </button>
+              <button
+                onClick={() => {
+                  const levelNameExport =
+                    niveles.find((n) => n.id === activeLevelId)?.nombre ||
+                    "TODOS LOS NIVELES";
+                  const renderExVal = (v) => {
+                    const num = parseFloat(v);
+                    if (isNaN(num) || num === 0) return "-";
+                    return num.toFixed(2);
+                  };
 
-                   let html = `<table style="border-collapse: collapse; font-family: Arial, sans-serif;">
+                  let html = `<table style="border-collapse: collapse; font-family: Arial, sans-serif;">
                       <colgroup>
-                         <col width="40" style="width: 40px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="120" style="width: 120px;" />
-                         <col width="280" style="width: 280px;" />
-                         <col width="280" style="width: 280px;" />
-                         <col width="280" style="width: 280px;" />
-                         <col width="280" style="width: 280px;" />
+                         <col width="30" style="width: 30px;" />
+                         <col width="50" style="width: 50px;" />
+                         <col width="100" style="width: 100px;" />
+                         <col width="100" style="width: 100px;" />
+                         <col width="80" style="width: 80px;" />
+                         <col width="80" style="width: 80px;" />
+                         <col width="80" style="width: 80px;" />
+                         <col width="90" style="width: 90px;" />
+                         <col width="90" style="width: 90px;" />
+                         <col width="90" style="width: 90px;" />
+                         <col width="145" style="width: 145px;" />
+                         <col width="145" style="width: 145px;" />
+                         <col width="145" style="width: 145px;" />
+                         <col width="145" style="width: 145px;" />
+                         <col width="145" style="width: 145px;" />
                       </colgroup>
                       <thead>
                       <tr style="height: 15pt;">
@@ -6816,118 +11463,224 @@ function ProjectWorkspace({
                       </tr>
                       <tr style="background-color: #e6e6fa; color: #312eb5; font-size: 8pt; font-family: Arial, sans-serif; text-align: center; height: 15pt;">
                          <td style="border: none; background-color: #ffffff;"></td>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">NO.</th>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">EJE</th>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">CLAVE</th>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">LARGO (M)</th>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">ANCHO (M)</th>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">ALTO (M)</th>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">BRUTO (M2)</th>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">-HUECOS (M2)</th>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">-CAST. (M2)</th>
-                         <th rowspan="2" style="border: 1px solid #c7d2fe; width: 120px; vertical-align: middle;">NETA (M2)</th>
-                         <th colspan="2" style="border: 1px solid #c7d2fe; width: 560px; vertical-align: middle;">APLANADO</th>
-                         <th colspan="2" style="border: 1px solid #c7d2fe; width: 560px; vertical-align: middle;">RECUBRIMIENTO</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">NO.</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">EJE</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">CLAVE</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">LARGO (M)</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">ANCHO (M)</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">ALTO (M)</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">BRUTO (M2)</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">-HUECOS (M2)</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">-CAST. (M2)</th>
+                         <th rowspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">NETA (M2)</th>
+                         <th colspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">APLANADO</th>
+                         <th colspan="2" style="border: 1px solid #c7d2fe; vertical-align: middle;">RECUBRIMIENTO</th>
                       </tr>
                       <tr style="background-color: #e6e6fa; color: #312eb5; font-size: 8pt; font-family: Arial, sans-serif; height: 15pt; text-align: center;">
                          <td style="border: none; background-color: #ffffff;"></td>
-                         <th style="border: 1px solid #c7d2fe; width: 280px; vertical-align: middle;">C1</th>
-                         <th style="border: 1px solid #c7d2fe; width: 280px; vertical-align: middle;">C2</th>
-                         <th style="border: 1px solid #c7d2fe; width: 280px; vertical-align: middle;">C1</th>
-                         <th style="border: 1px solid #c7d2fe; width: 280px; vertical-align: middle;">C2</th>
+                         <th style="border: 1px solid #c7d2fe; vertical-align: middle;">C1</th>
+                         <th style="border: 1px solid #c7d2fe; vertical-align: middle;">C2</th>
+                         <th style="border: 1px solid #c7d2fe; vertical-align: middle;">C1</th>
+                         <th style="border: 1px solid #c7d2fe; vertical-align: middle;">C2</th>
                       </tr>
                    </thead><tbody>`;
 
-                   muros.forEach((m, i) => {
-                      const bruto = calcWallArea(m.largo, m.alto), dedH = getWallHuecosTotal(m.huecos), dedC = getWallCastillosTotal(m.castillos, m.alto), neto = Math.max(0, bruto - dedH - dedC);
-                      html += `<tr style="text-align: center; background-color: #ffffff; height: 18pt;">
+                  muros.forEach((m, i) => {
+                    const bruto = calcWallArea(m.largo, m.alto),
+                      dedH = getWallHuecosTotal(m.huecos),
+                      dedC = getWallCastillosTotal(m.castillos, m.alto),
+                      neto = Math.max(0, bruto - dedH - dedC);
+                    html += `<tr style="text-align: center; background-color: #ffffff; height: 18pt;">
                          <td style="border: none; background-color: #ffffff;"></td>
-                         <td style="border: 1px solid #c7d2fe; color: #a6a6a6; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center; mso-number-format:'0';">${i+1}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #312eb5; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.eje || ''}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #000000; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.clave || ''}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #000066; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(m.largo)}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #000066; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(m.ancho)}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #000066; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(m.alto)}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #404040; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(bruto)}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #c00000; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${dedH > 0 ? dedH.toFixed(2) : '-'}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #e36c0a; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${dedC > 0 ? dedC.toFixed(2) : '-'}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #00b050; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(neto)}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #800080; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoAplanadoC1 || ''}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #800080; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoAplanadoC2 || ''}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #800080; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoRecubrimientoC1 || ''}</td>
-                         <td style="border: 1px solid #c7d2fe; color: #800080; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoRecubrimientoC2 || ''}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #a6a6a6; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center; mso-number-format:'0';">${i + 1}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #312eb5; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.eje || ""}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #000000; font-weight: bold; text-transform: uppercase; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.clave || ""}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #333f8f; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(m.largo)}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #333f8f; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(m.ancho)}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #333f8f; font-weight: bold; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(m.alto)}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #a6a6a6; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(bruto)}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #c00000; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${dedH > 0 ? dedH.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #c00000; font-size: 11pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${dedC > 0 ? dedC.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #000000; font-weight: bold; font-size: 12pt; font-family: Arial, sans-serif; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${renderExVal(neto)}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #a6a6a6; text-transform: uppercase; font-size: 10pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoAplanadoC1 || ""}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #a6a6a6; text-transform: uppercase; font-size: 10pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoAplanadoC2 || ""}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #a6a6a6; text-transform: uppercase; font-size: 10pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoRecubrimientoC1 || ""}</td>
+                         <td style="border: 1px solid #c7d2fe; color: #a6a6a6; text-transform: uppercase; font-size: 10pt; font-family: Arial, sans-serif; vertical-align: middle; text-align: center;">${m.tipoRecubrimientoC2 || ""}</td>
                       </tr>`;
-                   });
-                   html += `</tbody></table><br/><br/><br/>`;
+                  });
+                  html += `</tbody></table><br/><br/><br/>`;
 
-                   html += `<table style="width: 100%; border: none; font-family: Arial, sans-serif;"><tr>
+                  html += `<table style="width: 100%; border: none; font-family: Arial, sans-serif;"><tr>
                       <td style="width: 40px; border: none;"></td>
                       <td style="vertical-align: top; border: none; padding-right: 20px;">
                          <table style="border-collapse: collapse; text-align: center; width: 250px;">
-                            <thead><tr style="height: 20pt;"><th colspan="2" style="background-color: #00b050; color: white; font-size: 9pt; font-family: Arial, sans-serif; padding: 8px; border: 1px solid #00b050; vertical-align: middle; text-transform: uppercase;">ÁREA NETA POR ESPESOR</th></tr></thead>
+                            <thead><tr style="height: 20pt;"><th colspan="2" style="background-color: #00b050; color: white; font-size: 12pt; font-family: Arial, sans-serif; padding: 8px; border: 1px solid #00b050; vertical-align: middle; text-transform: uppercase;">ÁREA NETA POR ESPESOR</th></tr></thead>
                             <tbody>`;
-                            if(Object.keys(wallSummary.murosPorAncho).length === 0) html += `<tr style="height: 18pt;"><td colspan="2" style="text-align: center; color: #94a3b8; font-size: 8pt; font-family: Arial, sans-serif; border: 1px solid #e2e8f0; vertical-align: middle;">Sin datos</td></tr>`;
-                            Object.entries(wallSummary.murosPorAncho).forEach(([ancho, area]) => { 
-                               html += `<tr style="text-align: center; background-color: #ffffff; height: 18pt;">
-                                  <td style="font-weight: bold; color: #00b050; font-size: 8pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-left: 1px solid #e2e8f0; vertical-align: middle; text-align: center;">Muro ${parseFloat(ancho).toFixed(2)}m</td>
-                                  <td style="font-weight: bold; color: #00b050; font-size: 9pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${area.toFixed(2)}</td>
-                               </tr>`; 
-                            });
-                   html += `</tbody></table></td>
+                  if (Object.keys(wallSummary.murosPorAncho).length === 0)
+                    html += `<tr style="height: 18pt;"><td colspan="2" style="text-align: center; color: #94a3b8; font-size: 8pt; font-family: Arial, sans-serif; border: 1px solid #e2e8f0; vertical-align: middle;">Sin datos</td></tr>`;
+                  Object.entries(wallSummary.murosPorAncho).forEach(
+                    ([ancho, area]) => {
+                      html += `<tr style="text-align: center; background-color: #ffffff; height: 18pt;">
+                                  <td style="font-weight: bold; color: #000000; font-size: 12pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-left: 1px solid #e2e8f0; vertical-align: middle; text-align: center;">Muro ${parseFloat(ancho).toFixed(2)}m</td>
+                                  <td style="font-weight: bold; color: #000000; font-size: 12pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${area.toFixed(2)}</td>
+                               </tr>`;
+                    },
+                  );
+                  html += `</tbody></table></td>
                       <td style="vertical-align: top; border: none; padding-right: 20px;">
                          <table style="border-collapse: collapse; text-align: center; width: 250px;">
-                            <thead><tr style="height: 20pt;"><th colspan="2" style="background-color: #7030a0; color: white; font-size: 9pt; font-family: Arial, sans-serif; padding: 8px; border: 1px solid #7030a0; vertical-align: middle; text-transform: uppercase;">DESGLOSE APLANADOS</th></tr></thead>
+                            <thead><tr style="height: 20pt;"><th colspan="2" style="background-color: #7030a0; color: white; font-size: 12pt; font-family: Arial, sans-serif; padding: 8px; border: 1px solid #7030a0; vertical-align: middle; text-transform: uppercase;">DESGLOSE APLANADOS</th></tr></thead>
                             <tbody>`;
-                            if(Object.keys(wallSummary.aplanados).length === 0) html += `<tr style="height: 18pt;"><td colspan="2" style="text-align: center; color: #94a3b8; font-size: 8pt; font-family: Arial, sans-serif; border: 1px solid #e2e8f0; vertical-align: middle;">Sin datos</td></tr>`;
-                            Object.entries(wallSummary.aplanados).forEach(([tipo, area]) => { 
-                               html += `<tr style="text-align: center; background-color: #ffffff; height: 18pt;">
-                                  <td style="font-weight: bold; color: #7030a0; text-transform: uppercase; font-size: 8pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-left: 1px solid #e2e8f0; vertical-align: middle; text-align: center;">${tipo}</td>
-                                  <td style="font-weight: bold; color: #7030a0; font-size: 9pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${area.toFixed(2)}</td>
-                               </tr>`; 
-                            });
-                   html += `</tbody></table></td>
+                  if (Object.keys(wallSummary.aplanados).length === 0)
+                    html += `<tr style="height: 18pt;"><td colspan="2" style="text-align: center; color: #94a3b8; font-size: 8pt; font-family: Arial, sans-serif; border: 1px solid #e2e8f0; vertical-align: middle;">Sin datos</td></tr>`;
+                  Object.entries(wallSummary.aplanados).forEach(
+                    ([tipo, area]) => {
+                      html += `<tr style="text-align: center; background-color: #ffffff; height: 18pt;">
+                                  <td style="font-weight: bold; color: #000000; text-transform: uppercase; font-size: 12pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-left: 1px solid #e2e8f0; vertical-align: middle; text-align: center;">${tipo}</td>
+                                  <td style="font-weight: bold; color: #000000; font-size: 12pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${area.toFixed(2)}</td>
+                               </tr>`;
+                    },
+                  );
+                  html += `</tbody></table></td>
                       <td style="vertical-align: top; border: none;">
                          <table style="border-collapse: collapse; text-align: center; width: 250px;">
-                            <thead><tr style="height: 20pt;"><th colspan="2" style="background-color: #d200d2; color: white; font-size: 9pt; font-family: Arial, sans-serif; padding: 8px; border: 1px solid #d200d2; vertical-align: middle; text-transform: uppercase;">DESGLOSE RECUBRIMIENTOS</th></tr></thead>
+                            <thead><tr style="height: 20pt;"><th colspan="2" style="background-color: #000000; color: white; font-size: 12pt; font-family: Arial, sans-serif; padding: 8px; border: 1px solid #000000; vertical-align: middle; text-transform: uppercase;">DESGLOSE RECUBRIMIENTOS</th></tr></thead>
                             <tbody>`;
-                            if(Object.keys(wallSummary.recubrimientos).length === 0) html += `<tr style="height: 18pt;"><td colspan="2" style="text-align: center; color: #94a3b8; font-size: 8pt; font-family: Arial, sans-serif; border: 1px solid #e2e8f0; vertical-align: middle;">Sin datos</td></tr>`;
-                            Object.entries(wallSummary.recubrimientos).forEach(([tipo, area]) => { 
-                               html += `<tr style="text-align: center; background-color: #ffffff; height: 18pt;">
-                                  <td style="font-weight: bold; color: #d200d2; text-transform: uppercase; font-size: 8pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-left: 1px solid #e2e8f0; vertical-align: middle; text-align: center;">${tipo}</td>
-                                  <td style="font-weight: bold; color: #d200d2; font-size: 9pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${area.toFixed(2)}</td>
-                               </tr>`; 
-                            });
-                   html += `</tbody></table></td></tr></table>`;
+                  if (Object.keys(wallSummary.recubrimientos).length === 0)
+                    html += `<tr style="height: 18pt;"><td colspan="2" style="text-align: center; color: #94a3b8; font-size: 8pt; font-family: Arial, sans-serif; border: 1px solid #e2e8f0; vertical-align: middle;">Sin datos</td></tr>`;
+                  Object.entries(wallSummary.recubrimientos).forEach(
+                    ([tipo, area]) => {
+                      html += `<tr style="text-align: center; background-color: #ffffff; height: 18pt;">
+                                  <td style="font-weight: bold; color: #000000; text-transform: uppercase; font-size: 12pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-left: 1px solid #e2e8f0; vertical-align: middle; text-align: center;">${tipo}</td>
+                                  <td style="font-weight: bold; color: #000000; font-size: 12pt; font-family: Arial, sans-serif; border: none; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; vertical-align: middle; mso-number-format:'0\.00'; text-align: center;">${area.toFixed(2)}</td>
+                               </tr>`;
+                    },
+                  );
+                  html += `</tbody></table></td></tr></table>`;
 
-                   exportFormattedExcel(html, `Matriz_Muros_${levelNameExport}`);
-               }} className="px-6 py-2 bg-emerald-600 text-white font-black rounded-lg hover:bg-emerald-500 text-[10px] uppercase tracking-wider flex items-center gap-2 ml-auto"><FileDown size={14}/> Exportar Excel</button>
-             </div>
-             <div className="bg-slate-50 p-6 border-t border-slate-200 shrink-0">
-                <h3 className="text-sm font-black uppercase tracking-widest text-slate-800 mb-6 flex items-center gap-2"><LayoutDashboard size={18} className="text-indigo-600" /> Resumen para Generadores</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                     <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest block mb-3 border-b border-slate-100 pb-2">Área Neta por Espesor</span>
-                     {Object.keys(wallSummary.murosPorAncho).length === 0 && <span className="text-xs font-bold text-slate-300">Sin capturas</span>}
-                     {Object.entries(wallSummary.murosPorAncho).map(([ancho, area]) => ( <div key={ancho} className="flex justify-between items-center border-b border-slate-50 last:border-0 py-2"><span className="truncate w-2/3 uppercase text-slate-700 text-2xl font-black">Muro {ancho}m</span><div className="flex items-center gap-2"><span className="text-emerald-700 font-black text-xl">{area.toFixed(2)} m2</span><button onClick={() => handleCopyWalls('TOTAL_NETO', ancho)} className="p-1.5 bg-slate-100 text-slate-500 rounded-lg hover:bg-emerald-100 hover:text-emerald-700 transition-colors shadow-sm ml-1" title={`Copiar muros de ${ancho}m`}><Clipboard size={14}/></button></div></div> ))}
-                  </div>
-                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                     <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest block mb-3 border-b border-slate-100 pb-2">Desglose Aplanados</span>
-                     {Object.keys(wallSummary.aplanados).length === 0 && <span className="text-xs font-bold text-slate-300">Sin capturas</span>}
-                     {Object.entries(wallSummary.aplanados).map(([tipo, area]) => ( <div key={tipo} className="flex justify-between items-center border-b border-slate-50 last:border-0 py-2"><span className="truncate w-2/3 uppercase text-slate-700 text-sm font-black">{tipo}</span><div className="flex items-center gap-2"><span className="text-purple-700 font-black text-lg">{area.toFixed(2)} m2</span><button onClick={() => handleCopyWalls('APLANADO', tipo)} className="p-1.5 bg-slate-100 text-slate-500 rounded-lg hover:bg-purple-100 hover:text-purple-700 transition-colors shadow-sm ml-1" title={`Copiar detalles de muros con ${tipo}`}><Clipboard size={14}/></button></div></div> ))}
-                  </div>
-                  <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                     <span className="text-[10px] font-black text-fuchsia-600 uppercase tracking-widest block mb-3 border-b border-slate-100 pb-2">Desglose Recubrimientos</span>
-                     {Object.keys(wallSummary.recubrimientos).length === 0 && <span className="text-xs font-bold text-slate-300">Sin capturas</span>}
-                     {Object.entries(wallSummary.recubrimientos).map(([tipo, area]) => ( <div key={tipo} className="flex justify-between items-center border-b border-slate-50 last:border-0 py-2"><span className="truncate w-2/3 uppercase text-slate-700 text-sm font-black">{tipo}</span><div className="flex items-center gap-2"><span className="text-fuchsia-700 font-black text-lg">{area.toFixed(2)} m2</span><button onClick={() => handleCopyWalls('RECUBRIMIENTO', tipo)} className="p-1.5 bg-slate-100 text-slate-500 rounded-lg hover:bg-fuchsia-100 hover:text-fuchsia-700 transition-colors shadow-sm ml-1" title={`Copiar detalles de muros con ${tipo}`}><Clipboard size={14}/></button></div></div> ))}
-                  </div>
+                  exportFormattedExcel(html, `Matriz_Muros_${levelNameExport}`);
+                }}
+                className="px-6 py-2 bg-emerald-600 text-white font-black rounded-lg hover:bg-emerald-500 text-[10px] uppercase tracking-wider flex items-center gap-2 ml-auto"
+              >
+                <FileDown size={14} /> Exportar Excel
+              </button>
+            </div>
+            <div className="bg-slate-50 p-6 border-t border-slate-200 shrink-0">
+              <h3 className="text-sm font-black uppercase tracking-widest text-slate-800 mb-6 flex items-center gap-2">
+                <LayoutDashboard size={18} className="text-indigo-600" />{" "}
+                Resumen para Generadores
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest block mb-3 border-b border-slate-100 pb-2">
+                    Área Neta por Espesor
+                  </span>
+                  {Object.keys(wallSummary.murosPorAncho).length === 0 && (
+                    <span className="text-xs font-bold text-slate-300">
+                      Sin capturas
+                    </span>
+                  )}
+                  {Object.entries(wallSummary.murosPorAncho).map(
+                    ([ancho, area]) => (
+                      <div
+                        key={ancho}
+                        className="flex justify-between items-center border-b border-slate-50 last:border-0 py-2"
+                      >
+                        <span className="truncate w-2/3 uppercase text-slate-700 text-2xl font-black">
+                          Muro {ancho}m
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-700 font-black text-xl">
+                            {area.toFixed(2)} m2
+                          </span>
+                          <button
+                            onClick={() => handleCopyWalls("TOTAL_NETO", ancho)}
+                            className="p-1.5 bg-slate-100 text-slate-500 rounded-lg hover:bg-emerald-100 hover:text-emerald-700 transition-colors shadow-sm ml-1"
+                            title={`Copiar muros de ${ancho}m`}
+                          >
+                            <Clipboard size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ),
+                  )}
                 </div>
-             </div>
-           </div>
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                  <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest block mb-3 border-b border-slate-100 pb-2">
+                    Desglose Aplanados
+                  </span>
+                  {Object.keys(wallSummary.aplanados).length === 0 && (
+                    <span className="text-xs font-bold text-slate-300">
+                      Sin capturas
+                    </span>
+                  )}
+                  {Object.entries(wallSummary.aplanados).map(([tipo, area]) => (
+                    <div
+                      key={tipo}
+                      className="flex justify-between items-center border-b border-slate-50 last:border-0 py-2"
+                    >
+                      <span className="truncate w-2/3 uppercase text-slate-700 text-sm font-black">
+                        {tipo}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-purple-700 font-black text-lg">
+                          {area.toFixed(2)} m2
+                        </span>
+                        <button
+                          onClick={() => handleCopyWalls("APLANADO", tipo)}
+                          className="p-1.5 bg-slate-100 text-slate-500 rounded-lg hover:bg-purple-100 hover:text-purple-700 transition-colors shadow-sm ml-1"
+                          title={`Copiar detalles de muros con ${tipo}`}
+                        >
+                          <Clipboard size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                  <span className="text-[10px] font-black text-fuchsia-600 uppercase tracking-widest block mb-3 border-b border-slate-100 pb-2">
+                    Desglose Recubrimientos
+                  </span>
+                  {Object.keys(wallSummary.recubrimientos).length === 0 && (
+                    <span className="text-xs font-bold text-slate-300">
+                      Sin capturas
+                    </span>
+                  )}
+                  {Object.entries(wallSummary.recubrimientos).map(
+                    ([tipo, area]) => (
+                      <div
+                        key={tipo}
+                        className="flex justify-between items-center border-b border-slate-50 last:border-0 py-2"
+                      >
+                        <span className="truncate w-2/3 uppercase text-slate-700 text-sm font-black">
+                          {tipo}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-fuchsia-700 font-black text-lg">
+                            {area.toFixed(2)} m2
+                          </span>
+                          <button
+                            onClick={() =>
+                              handleCopyWalls("RECUBRIMIENTO", tipo)
+                            }
+                            className="p-1.5 bg-slate-100 text-slate-500 rounded-lg hover:bg-fuchsia-100 hover:text-fuchsia-700 transition-colors shadow-sm ml-1"
+                            title={`Copiar detalles de muros con ${tipo}`}
+                          >
+                            <Clipboard size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         ) : showSettings ? (
           <div className="bg-white rounded-3xl p-10 shadow-xl border border-gray-100 animate-in fade-in zoom-in-95 duration-300">
             <div className="flex items-center justify-between mb-10">
               <h2 className="text-2xl font-black underline underline-offset-8 decoration-blue-500 decoration-4">
-                Configuración del Proyecto
+                {activePartidaId ? "Ajustes de Partida" : "Configuración del Proyecto"}
               </h2>
               <button
                 onClick={() => setShowSettings(false)}
@@ -6939,90 +11692,96 @@ function ProjectWorkspace({
 
             <div className="grid md:grid-cols-2 gap-12">
               <div className="space-y-4">
-                <label className="block text-[10px] font-black text-blue-400 mb-3 uppercase tracking-[0.2em]">
-                  Gestión de Niveles
-                </label>
-                {niveles.map((n, i) => (
-                  <div
-                    key={n.id}
-                    className="flex gap-3 bg-slate-50 p-2 rounded-xl border items-center shadow-sm"
-                  >
-                    <DebouncedCell
-                      className="flex-1 bg-transparent p-2 font-black text-slate-700"
-                      value={n.nombre || ""}
-                      onChange={(v) => {
-                        const x = [...niveles];
-                        x[i].nombre = v;
-                        setNiveles(x);
-                      }}
-                    />
+                {activePartidaId && (
+                  <>
+                    <label className="block text-[10px] font-black text-blue-400 mb-3 uppercase tracking-[0.2em]">
+                      Gestión de Niveles de la Partida
+                    </label>
+                    {niveles.map((n, i) => (
+                      <div
+                        key={n.id}
+                        className="flex gap-3 bg-slate-50 p-2 rounded-xl border items-center shadow-sm"
+                      >
+                        <DebouncedCell
+                          className="flex-1 bg-transparent p-2 font-black text-slate-700"
+                          value={n.nombre || ""}
+                          onChange={(v) => {
+                            const x = [...niveles];
+                            x[i].nombre = v;
+                            setNiveles(x);
+                          }}
+                        />
+                        <button
+                          onClick={() =>
+                            setNiveles(niveles.filter((l) => l.id !== n.id))
+                          }
+                          className="text-red-300 hover:text-red-500 p-2"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
                     <button
                       onClick={() =>
-                        setNiveles(niveles.filter((l) => l.id !== n.id))
+                        setNiveles([
+                          ...niveles,
+                          {
+                            id: `n${Date.now()}`,
+                            nombre: `N${niveles.length + 1}`,
+                          },
+                        ])
                       }
-                      className="text-red-300 hover:text-red-500 p-2"
+                      className="w-full py-3 mt-4 border-2 border-dashed rounded-xl font-black text-blue-500 border-blue-200 hover:bg-blue-50 transition-all"
                     >
-                      <Trash2 size={16} />
+                      + Agregar Nivel a Partida
                     </button>
-                  </div>
-                ))}
-                <button
-                  onClick={() =>
-                    setNiveles([
-                      ...niveles,
-                      {
-                        id: `n${Date.now()}`,
-                        nombre: `N${niveles.length + 1}`,
-                      },
-                    ])
-                  }
-                  className="w-full py-3 mt-4 border-2 border-dashed rounded-xl font-black text-blue-500 border-blue-200 hover:bg-blue-50 transition-all"
-                >
-                  + Agregar Nivel
-                </button>
+                  </>
+                )}
               </div>
 
               <div className="bg-blue-50/50 p-8 rounded-[2.5rem] border h-fit">
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-[10px] font-black text-blue-400 mb-2 uppercase tracking-[0.2em]">
-                      Nombre del Proyecto (Obra)
-                    </label>
-                    <DebouncedCell
-                      className="w-full p-4 bg-white border border-blue-100 rounded-xl text-lg font-black shadow-sm outline-none"
-                      value={obraInfo.nombre || ""}
-                      onChange={(v) => {
-                        const newInfo = { ...obraInfo, nombre: v };
-                        setObraInfo(newInfo);
-                        onUpdateMetadata(
-                          projectId,
-                          newInfo.nombre,
-                          newInfo.ubicacion,
-                        );
-                      }}
-                    />
+                {!activePartidaId && (
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-[10px] font-black text-blue-400 mb-2 uppercase tracking-[0.2em]">
+                        Nombre del Proyecto (Obra)
+                      </label>
+                      <DebouncedCell
+                        className="w-full p-4 bg-white border border-blue-100 rounded-xl text-lg font-black shadow-sm outline-none"
+                        value={obraInfo.nombre || ""}
+                        onChange={(v) => {
+                          const newInfo = { ...obraInfo, nombre: v };
+                          setObraInfo(newInfo);
+                          onUpdateMetadata(
+                            projectId,
+                            newInfo.nombre,
+                            newInfo.ubicacion,
+                          );
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-blue-400 mb-2 uppercase tracking-[0.2em]">
+                        Ubicación
+                      </label>
+                      <DebouncedCell
+                        className="w-full p-4 bg-white border border-blue-100 rounded-xl text-sm font-bold shadow-sm outline-none"
+                        value={obraInfo.ubicacion || ""}
+                        onChange={(v) => {
+                          const newInfo = { ...obraInfo, ubicacion: v };
+                          setObraInfo(newInfo);
+                          onUpdateMetadata(
+                            projectId,
+                            newInfo.nombre,
+                            newInfo.ubicacion,
+                          );
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-blue-400 mb-2 uppercase tracking-[0.2em]">
-                      Ubicación
-                    </label>
-                    <DebouncedCell
-                      className="w-full p-4 bg-white border border-blue-100 rounded-xl text-sm font-bold shadow-sm outline-none"
-                      value={obraInfo.ubicacion || ""}
-                      onChange={(v) => {
-                        const newInfo = { ...obraInfo, ubicacion: v };
-                        setObraInfo(newInfo);
-                        onUpdateMetadata(
-                          projectId,
-                          newInfo.nombre,
-                          newInfo.ubicacion,
-                        );
-                      }}
-                    />
-                  </div>
-                </div>
+                )}
                 {activePartidaId && (
-                  <div className="mt-6 pt-6 border-t border-blue-200/50">
+                  <div className={!activePartidaId ? "mt-6 pt-6 border-t border-blue-200/50" : ""}>
                     <label className="block text-[10px] font-black text-blue-400 mb-3 uppercase tracking-[0.2em]">
                       Nombre Partida Actual
                     </label>
@@ -7150,17 +11909,17 @@ function ProjectWorkspace({
                           setConceptSearchTerm("");
                         }}
                         title="Doble clic para buscador"
-                        className="w-full h-full p-1.5 bg-transparent text-left outline-none text-blue-700 font-black min-w-0 cursor-pointer hover:bg-blue-50/50 text-[16px]"
+                        className="w-full h-full p-1.5 bg-transparent text-left outline-none text-blue-700 font-black min-w-0 cursor-pointer hover:bg-blue-50/50 text-[13px]"
                       />
                     </td>
-                    <td className="p-0 border text-center text-[10px]">
+                    <td className="p-0 border text-center text-[13px]">
                       <DebouncedCell
                         value={c.clave}
                         onChange={(v) => updateConceptoField(c.id, "clave", v)}
                         className="w-full h-full p-1.5 bg-transparent text-center outline-none min-w-0"
                       />
                     </td>
-                    <td className="p-0 border text-center text-[10px]">
+                    <td className="p-0 border text-center text-[13px]">
                       <DebouncedCell
                         value={c.cc}
                         onChange={(v) => updateConceptoField(c.id, "cc", v)}
@@ -7178,15 +11937,15 @@ function ProjectWorkspace({
                         className="w-full h-full p-1 bg-transparent outline-none resize-none min-w-0 leading-tight"
                       />
                     </td>
-                    <td className="p-0 border text-xs md:text-sm font-bold">
+                    <td className="p-0 border text-[10px] md:text-[11px] font-bold">
                       <DebouncedCell
                         isTextArea
-                        rows={2}
+                        rows={4}
                         value={c.descripcion}
                         onChange={(v) =>
                           updateConceptoField(c.id, "descripcion", v)
                         }
-                        className="w-full h-full p-1 bg-transparent outline-none resize-none min-w-0 leading-tight uppercase"
+                        className="w-full h-auto min-h-[60px] p-2 bg-transparent outline-none min-w-0 leading-tight uppercase"
                       />
                     </td>
                     <td className="p-0 border text-center font-black">
@@ -7205,13 +11964,13 @@ function ProjectWorkspace({
                             setEditingModal({ concepto: c, nivel: n });
                             setSelectedGeneratorRows([]);
                           }}
-                          className={`p-1 md:p-1.5 border text-center cursor-pointer font-black text-[11px] md:text-xs leading-tight ${vol > 0 ? "bg-emerald-50 text-emerald-800" : "text-slate-200 hover:bg-blue-50"}`}
+                          className={`p-1 md:p-1.5 border text-center cursor-pointer font-black text-base md:text-lg leading-tight ${vol > 0 ? "bg-emerald-50 text-emerald-800" : "text-slate-200 hover:bg-blue-50"}`}
                         >
                           {vol.toFixed(2)}
                         </td>
                       );
                     })}
-                    <td className="p-1 md:p-1.5 border text-center font-black bg-gray-100 text-[11px] md:text-xs leading-tight text-slate-800">
+                    <td className="p-1 md:p-1.5 border text-center font-black bg-gray-100 text-base md:text-lg leading-tight text-slate-800">
                       {getTotalConcepto(c.id).toFixed(2)}
                     </td>
                     <td className="p-0 border text-center">
@@ -7253,30 +12012,36 @@ function ProjectWorkspace({
                 onClick={() => {
                   let html = `<table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">
                       <colgroup>
+                         <col width="30" />
                          <col width="120" />
                          <col width="100" />
                          <col width="100" />
                          <col width="250" />
                          <col width="450" />
                          <col width="80" />
-                         ${niveles.map(() => '<col width="100" />').join("")}
-                         <col width="100" />
+                         ${niveles.map(() => '<col width="110" />').join("")}
+                         <col width="110" />
                       </colgroup>
                       <thead>
+                      <tr style="height: 15pt;">
+                         <td colspan="${7 + niveles.length + 1}" style="border: none; background-color: #ffffff;"></td>
+                      </tr>
                       <tr style="height: 25pt;">
+                         <td style="border: none; background-color: #ffffff;"></td>
                          <td colspan="${6 + niveles.length + 1}" style="background-color: #0b1a30; color: #ffffff; font-size: 10pt; font-weight: bold; text-align: center; vertical-align: middle; padding: 8px; border: none; text-transform: uppercase;">
                             CATÁLOGO GENERAL - PARTIDA: ${activePartida.nombre}
                          </td>
                       </tr>
-                      <tr><td colspan="${6 + niveles.length + 1}" style="height: 10px; border: none; background-color: #ffffff;"></td></tr>
+                      <tr><td colspan="${7 + niveles.length + 1}" style="height: 10px; border: none; background-color: #ffffff;"></td></tr>
                       <tr style="height: 20pt;">
-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CÓDIGO</td>
-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CLAVE</td>
-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CC</td>
-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">JUSTIFICACIÓN</td>
-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">DESCRIPCIÓN</td>
-                         <td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">UNID.</td>
-                         ${niveles.map((n) => `<td style="background-color: #1f3864; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">${n.nombre.toUpperCase()}</td>`).join("")}
+                         <td style="border: none; background-color: #ffffff;"></td>
+                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CÓDIGO</td>
+                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CLAVE</td>
+                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CC</td>
+                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">JUSTIFICACIÓN</td>
+                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">DESCRIPCIÓN</td>
+                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">UNID.</td>
+                         ${niveles.map((n) => `<td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">${n.nombre.toUpperCase()}</td>`).join("")}
                          <td style="background-color: #000000; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">TOTAL</td>
                       </tr>
                   </thead><tbody>`;
@@ -7286,24 +12051,25 @@ function ProjectWorkspace({
                     const desc = (c.descripcion || "").replace(/\n/g, " ");
                     const total = getTotalConcepto(c.id);
 
-                    html += `<tr style="height: 25pt; background-color: #f4f6f9;">
-                         <td style="font-weight: bold; color: #002060; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 12pt;">${c.id}</td>
-                         <td style="font-weight: bold; color: #404040; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt;">${c.clave || ""}</td>
-                         <td style="font-weight: bold; color: #404040; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt;">${c.cc || ""}</td>
-                         <td style="color: #404040; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt;">${just}</td>
-                         <td style="font-weight: bold; color: #404040; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt;">${desc}</td>
-                         <td style="color: #0070c0; font-weight: bold; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 12pt;">${c.unidad || ""}</td>
+                    html += `<tr style="background-color: #ffffff; mso-height-source: auto;">
+                         <td style="border: none; background-color: #ffffff;"></td>
+                         <td style="font-weight: bold; color: #002060; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 12pt;">${c.id}</td>
+                         <td style="font-weight: bold; color: #404040; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 10pt;">${c.clave || ""}</td>
+                         <td style="font-weight: bold; color: #404040; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 10pt;">${c.cc || ""}</td>
+                         <td style="color: #404040; text-align: left; vertical-align: middle; padding: 10px; border: 1px solid #b4c6e7; font-size: 10pt; white-space: normal; word-wrap: break-word; mso-height-source: auto;">${just}</td>
+                         <td style="font-weight: normal; color: #404040; text-align: center; vertical-align: middle; padding: 10px; border: 1px solid #b4c6e7; font-size: 10pt; white-space: normal; word-wrap: break-word; mso-height-source: auto;">${desc}</td>
+                         <td style="color: #0070c0; font-weight: bold; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 12pt;">${c.unidad || ""}</td>
                          ${niveles
                            .map((n) => {
                              const vol = getVolumenNivel(c.id, n.id);
                              if (vol > 0) {
-                               return `<td style="font-weight: bold; background-color: #e2efda; color: #00b050; text-align: right; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt; mso-number-format:'0\\.00';">${vol.toFixed(2)}</td>`;
+                               return `<td style="font-weight: bold; background-color: #e3fde4; color: #006368; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 12pt; mso-number-format:'0\\.00';">${vol.toFixed(2)}</td>`;
                              } else {
-                               return `<td style="color: #d9d9d9; text-align: right; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt;">-</td>`;
+                               return `<td style="color: #006368; background-color: #e3fde4; font-weight: bold; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 12pt;">-</td>`;
                              }
                            })
                            .join("")}
-                         <td style="font-weight: bold; color: #000000; text-align: right; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 10pt; mso-number-format:'0\\.00';">${total > 0 ? total.toFixed(2) : "-"}</td>
+                         <td style="font-weight: bold; color: #000000; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 12pt; mso-number-format:'0\\.00';">${total > 0 ? total.toFixed(2) : "-"}</td>
                       </tr>`;
                   });
                   html += "</tbody></table>";
@@ -7371,11 +12137,48 @@ function ProjectWorkspace({
           </div>
         )}
       </main>
+
+      {partidaToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 mb-6 font-black animate-bounce">
+              <Trash2 size={32} />
+            </div>
+            <h3 className="text-2xl font-black text-slate-800 mb-4 uppercase tracking-tighter">
+              ¿Eliminar partida?
+            </h3>
+            <p className="text-slate-500 font-bold text-sm mb-8 leading-relaxed uppercase tracking-wider">
+              Esta acción borrará permanentemente todos los conceptos y datos de
+              esta partida. No se puede deshacer.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => setPartidaToDelete(null)}
+                className="px-6 py-4 rounded-2xl font-black text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all uppercase tracking-widest text-xs"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => confirmDeletePartida(partidaToDelete)}
+                className="px-6 py-4 bg-red-600 text-white rounded-2xl font-black shadow-lg shadow-red-200 hover:bg-red-700 transition-all uppercase tracking-widest text-xs active:scale-95"
+              >
+                Sí, Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-const Dashboard = ({ projects, onCreate, onSelect, onDelete, onCatMaestro }) => {
+const Dashboard = ({
+  projects,
+  onCreate,
+  onSelect,
+  onDelete,
+  onCatMaestro,
+}) => {
   return (
     <div className="min-h-screen bg-[#fcfdfe] font-sans text-slate-900 p-8 flex flex-col items-center">
       <div className="max-w-7xl w-full animate-in fade-in duration-500">
@@ -7462,8 +12265,13 @@ const Dashboard = ({ projects, onCreate, onSelect, onDelete, onCatMaestro }) => 
                   }}
                   className="bg-slate-50 text-slate-400 hover:text-red-600 px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center justify-center gap-2 group/del border border-slate-100 hover:border-red-100 relative z-50 ml-auto"
                 >
-                  <Trash2 size={16} className="group-hover/del:scale-110 transition-transform" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Borrar</span>
+                  <Trash2
+                    size={16}
+                    className="group-hover/del:scale-110 transition-transform"
+                  />
+                  <span className="text-[10px] font-black uppercase tracking-widest">
+                    Borrar
+                  </span>
                 </button>
               </div>
             </div>
@@ -7505,13 +12313,14 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  const [projects, setProjects, loadedProjects, savingProjects] = usePersistentState(
-    "xdifica_projects_list",
-    [],
-    user,
-  );
-  const [catalogoConceptos, setCatalogoConceptos, loadedCatalogo, savingCatalogo] =
-    usePersistentState("xdifica_global_catalogo_v3", [], user);
+  const [projects, setProjects, loadedProjects, savingProjects] =
+    usePersistentState("xdifica_projects_list", [], user);
+  const [
+    catalogoConceptos,
+    setCatalogoConceptos,
+    loadedCatalogo,
+    savingCatalogo,
+  ] = usePersistentState("xdifica_global_catalogo_v3", [], user);
   const [activeProjectId, setActiveProjectId] = useState(null);
   const [showGlobalCatalogo, setShowGlobalCatalogo] = useState(false);
 
@@ -7592,29 +12401,32 @@ export default function App() {
 
   const [projectToDelete, setProjectToDelete] = useState(null);
 
-  const handleDeleteProject = useCallback(async (id) => {
-    console.log("Eliminando obra:", id);
-    setProjects((prev) => prev.filter((p) => p.id !== id));
-    if (user && db) {
-      const docRef = doc(
-        db,
-        "artifacts",
-        appId,
-        "users",
-        user.uid,
-        "projects",
-        id,
-      );
-      await deleteDoc(docRef).catch((e) =>
-        console.error("Error al borrar en Firestore:", e),
-      );
-    } else {
-      ["obraInfo", "niveles", "partidas", "catalogoConceptos"].forEach(
-        (key) => localStorage.removeItem(`xdifica_proj_${id}_${key}`),
-      );
-    }
-    setProjectToDelete(null);
-  }, [user, db, setProjects]);
+  const handleDeleteProject = useCallback(
+    async (id) => {
+      console.log("Eliminando obra:", id);
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+      if (user && db) {
+        const docRef = doc(
+          db,
+          "artifacts",
+          appId,
+          "users",
+          user.uid,
+          "projects",
+          id,
+        );
+        await deleteDoc(docRef).catch((e) =>
+          console.error("Error al borrar en Firestore:", e),
+        );
+      } else {
+        ["obraInfo", "niveles", "partidas", "catalogoConceptos"].forEach(
+          (key) => localStorage.removeItem(`xdifica_proj_${id}_${key}`),
+        );
+      }
+      setProjectToDelete(null);
+    },
+    [user, db, setProjects],
+  );
 
   const handleUpdateMetadata = (id, name, location) => {
     setProjects((prev) =>
@@ -7623,7 +12435,8 @@ export default function App() {
   };
 
   if (!authInit) return <LoadingScreen text="Conectando con la nube..." />;
-  if (!loadedProjects || !loadedCatalogo) return <LoadingScreen text="Sincronizando obras..." />;
+  if (!loadedProjects || !loadedCatalogo)
+    return <LoadingScreen text="Sincronizando obras..." />;
 
   if (activeProjectId) {
     return (
@@ -7715,16 +12528,23 @@ function GlobalCatalogoModal({
   const resizingRef = useRef(null);
   const startResizing = (colId, e) => {
     e.preventDefault();
-    resizingRef.current = { colId, startX: e.pageX, startWidth: catColWidths[colId] || 100 };
+    resizingRef.current = {
+      colId,
+      startX: e.pageX,
+      startWidth: catColWidths[colId] || 100,
+    };
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", stopResizing);
   };
-  const handleMouseMove = useCallback((e) => {
-    if (!resizingRef.current) return;
-    const { colId, startX, startWidth } = resizingRef.current;
-    const newWidth = Math.max(30, startWidth + (e.pageX - startX));
-    setCatColWidths((p) => ({ ...p, [colId]: newWidth }));
-  }, [setCatColWidths]);
+  const handleMouseMove = useCallback(
+    (e) => {
+      if (!resizingRef.current) return;
+      const { colId, startX, startWidth } = resizingRef.current;
+      const newWidth = Math.max(30, startWidth + (e.pageX - startX));
+      setCatColWidths((p) => ({ ...p, [colId]: newWidth }));
+    },
+    [setCatColWidths],
+  );
   const stopResizing = useCallback(() => {
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", stopResizing);
@@ -7739,7 +12559,7 @@ function GlobalCatalogoModal({
     },
     [setCatalogoConceptos],
   );
-  
+
   const updateCatalogoId = useCallback(
     (oldId, newId) => {
       if (oldId === newId || !newId.trim()) return;
@@ -7816,7 +12636,9 @@ function GlobalCatalogoModal({
                     >
                       <div className="flex flex-col items-center justify-center gap-3">
                         <AlertCircle size={32} className="opacity-30" />
-                        <span>El catálogo está vacío. Agrega conceptos base.</span>
+                        <span>
+                          El catálogo está vacío. Agrega conceptos base.
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -7830,7 +12652,7 @@ function GlobalCatalogoModal({
                       <DebouncedCell
                         value={c.id}
                         onChange={(v) => updateCatalogoId(c.id, v)}
-                        className="w-full h-full p-3 bg-transparent text-left outline-none font-black text-teal-800 min-w-0 text-[16px]"
+                        className="w-full h-full p-3 bg-transparent text-left outline-none font-black text-teal-800 min-w-0 text-[13px]"
                         placeholder="Ej. PRE-01"
                       />
                     </td>
@@ -7838,14 +12660,14 @@ function GlobalCatalogoModal({
                       <DebouncedCell
                         value={c.clave}
                         onChange={(v) => updateCatalogoField(c.id, "clave", v)}
-                        className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600"
+                        className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600 text-[13px]"
                       />
                     </td>
                     <td className="p-0 border-r border-slate-200">
                       <DebouncedCell
                         value={c.cc}
                         onChange={(v) => updateCatalogoField(c.id, "cc", v)}
-                        className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600"
+                        className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600 text-[13px]"
                       />
                     </td>
                     <td className="p-0 border-r border-slate-200">
@@ -7853,17 +12675,21 @@ function GlobalCatalogoModal({
                         isTextArea
                         rows={2}
                         value={c.justificacion}
-                        onChange={(v) => updateCatalogoField(c.id, "justificacion", v)}
+                        onChange={(v) =>
+                          updateCatalogoField(c.id, "justificacion", v)
+                        }
                         className="w-full h-full p-2 bg-transparent outline-none resize-none min-w-0 italic text-slate-500"
                       />
                     </td>
                     <td className="p-0 border-r border-slate-200">
                       <DebouncedCell
                         isTextArea
-                        rows={2}
+                        rows={4}
                         value={c.descripcion}
-                        onChange={(v) => updateCatalogoField(c.id, "descripcion", v)}
-                        className="w-full h-full p-2 bg-transparent outline-none resize-none min-w-0 text-slate-700 font-bold uppercase"
+                        onChange={(v) =>
+                          updateCatalogoField(c.id, "descripcion", v)
+                        }
+                        className="w-full h-auto min-h-[60px] p-2 bg-transparent outline-none min-w-0 text-slate-700 font-bold uppercase transition-all focus:bg-white"
                       />
                     </td>
                     <td className="p-0 border-r border-slate-200">
@@ -7875,7 +12701,11 @@ function GlobalCatalogoModal({
                     </td>
                     <td className="p-0 text-center">
                       <button
-                        onClick={() => setCatalogoConceptos((prev) => prev.filter((x) => x.id !== c.id))}
+                        onClick={() =>
+                          setCatalogoConceptos((prev) =>
+                            prev.filter((x) => x.id !== c.id),
+                          )
+                        }
                         className="text-slate-300 hover:text-red-500 transition-colors p-2"
                       >
                         <Trash2 size={16} />
@@ -7893,7 +12723,14 @@ function GlobalCatalogoModal({
               const newId = `CAT-${Date.now().toString(36).toUpperCase()}`;
               setCatalogoConceptos((prev) => [
                 ...prev,
-                { id: newId, clave: "", cc: "", justificacion: "", descripcion: "", unidad: "m2" },
+                {
+                  id: newId,
+                  clave: "",
+                  cc: "",
+                  justificacion: "",
+                  descripcion: "",
+                  unidad: "m2",
+                },
               ]);
             }}
             className="px-6 py-3 bg-teal-700 text-white rounded-xl text-xs font-black shadow-md transition-transform active:scale-95 uppercase tracking-wider hover:bg-teal-600 flex items-center gap-2"
