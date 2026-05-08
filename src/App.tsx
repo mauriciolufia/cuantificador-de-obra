@@ -389,32 +389,56 @@ const DebouncedCell = ({
   type = "text",
   min,
   step,
+  allowMath = false,
 }) => {
+  const evaluateExpression = (expr) => {
+    if (typeof expr !== "string") return expr;
+    let cleanExpr = expr.trim();
+    if (cleanExpr.startsWith("=")) cleanExpr = cleanExpr.slice(1);
+    // Allow numbers, basic math operators, parentheses, and decimals.
+    if (!/^[0-9+\-*/().\s]+$/.test(cleanExpr) || cleanExpr === "") return expr;
+    try {
+      const result = new Function(`"use strict"; return (${cleanExpr});`)();
+      return isNaN(result) ? expr : result;
+    } catch (e) {
+      return expr;
+    }
+  };
+
   const formatValue = (val) => {
     if (val === null || val === undefined) return "";
-    if (type === "number" && step && val !== "") {
-      const parsed = parseFloat(val);
-      if (isNaN(parsed)) return "";
+    let v = val;
+    if (allowMath && typeof v === "string") {
+      v = evaluateExpression(v);
+    }
+    if ((type === "number" || allowMath) && step && v !== "") {
+      const parsed = parseFloat(v);
+      if (isNaN(parsed)) return val;
       if (step === "0.001") return parsed.toFixed(3);
       if (step === "0.01") return parsed.toFixed(2);
+      return parsed.toString();
     }
     return val;
   };
   const [localValue, setLocalValue] = useState(formatValue(value));
   useEffect(() => {
     setLocalValue(formatValue(value));
-  }, [value, type, step]);
+  }, [value, type, step, allowMath]);
   const handleBlur = () => {
     let finalValue = localValue;
-    if (type === "number" && step && finalValue !== "") {
+    if (allowMath && typeof finalValue === "string") {
+      finalValue = evaluateExpression(finalValue);
+    }
+    if ((type === "number" || allowMath) && step && finalValue !== "") {
       const parsed = parseFloat(finalValue);
       if (!isNaN(parsed)) {
         if (step === "0.001") finalValue = parsed.toFixed(3);
         else if (step === "0.01") finalValue = parsed.toFixed(2);
+        else finalValue = parsed.toString();
         setLocalValue(finalValue);
       }
     }
-    if (finalValue !== value) onChange(finalValue);
+    if (String(finalValue) !== String(value)) onChange(finalValue);
   };
   if (isTextArea)
     return (
@@ -435,7 +459,7 @@ const DebouncedCell = ({
     );
   return (
     <input
-      type={type}
+      type={allowMath ? "text" : type}
       min={min}
       step={step}
       className={className}
@@ -513,6 +537,7 @@ const GeneratorRow = React.memo(
         <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
           <DebouncedCell
             type="number"
+            allowMath={true}
             step="0.01"
             className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
             value={row.largo}
@@ -522,6 +547,7 @@ const GeneratorRow = React.memo(
         <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
           <DebouncedCell
             type="number"
+            allowMath={true}
             step="0.01"
             className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
             value={row.ancho}
@@ -531,6 +557,7 @@ const GeneratorRow = React.memo(
         <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
           <DebouncedCell
             type="number"
+            allowMath={true}
             step="0.001"
             className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
             value={row.kg_ml}
@@ -540,6 +567,7 @@ const GeneratorRow = React.memo(
         <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
           <DebouncedCell
             type="number"
+            allowMath={true}
             step="0.01"
             className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
             value={row.alto}
@@ -573,6 +601,7 @@ const GeneratorRow = React.memo(
         <td className="px-2 py-1.5 border-r border-slate-300 text-center font-black">
           <DebouncedCell
             type="number"
+            allowMath={true}
             className="w-full p-1 bg-transparent text-center outline-none text-[11px]"
             value={row.piezas}
             onChange={(v) => updateRow(row.id, "piezas", v)}
@@ -3173,9 +3202,9 @@ function ProjectWorkspace({
                 ? base.claveLoc + labelSuffix
                 : labelSuffix.trim(),
               largo: l,
-              ancho: "",
+              ancho: 2,
               alto: outputAlto,
-              piezas: p * 2,
+              piezas: p,
             },
           ];
         if (
@@ -3220,9 +3249,9 @@ function ProjectWorkspace({
                   ")"
                 : "Lados X" + (labelSuffix ? labelSuffix : ""),
               largo: l,
-              ancho: "",
+              ancho: 2,
               alto: outputAlto,
-              piezas: p * 2,
+              piezas: p,
             },
             {
               ...base,
@@ -3233,9 +3262,9 @@ function ProjectWorkspace({
                   ")"
                 : "Lados Y" + (labelSuffix ? labelSuffix : ""),
               largo: a,
-              ancho: "",
+              ancho: 2,
               alto: outputAlto,
-              piezas: p * 2,
+              piezas: p,
             },
           ];
         }
@@ -3247,9 +3276,9 @@ function ProjectWorkspace({
                 ? base.claveLoc + " (Lados X" + labelSuffix + ")"
                 : "Lados X" + labelSuffix,
               largo: l,
-              ancho: "",
+              ancho: 2,
               alto: h,
-              piezas: p * 2,
+              piezas: p,
             },
             {
               ...base,
@@ -3257,9 +3286,9 @@ function ProjectWorkspace({
                 ? base.claveLoc + " (Lados Y" + labelSuffix + ")"
                 : "Lados Y" + labelSuffix,
               largo: a,
-              ancho: "",
+              ancho: 2,
               alto: h,
-              piezas: p * 2,
+              piezas: p,
             },
           ];
         if (t === "trabe" || t === "contratrabe")
@@ -3280,9 +3309,9 @@ function ProjectWorkspace({
                 ? base.claveLoc + " (Laterales" + labelSuffix + ")"
                 : "Laterales" + labelSuffix,
               largo: l,
-              ancho: "",
+              ancho: 2,
               alto: h,
-              piezas: p * 2,
+              piezas: p,
             },
           ];
         return [];
@@ -3421,9 +3450,9 @@ function ProjectWorkspace({
                 ? base.claveLoc + " (Frontera X)"
                 : "Frontera X",
               largo: l,
-              ancho: "",
+              ancho: 2,
               alto: "",
-              piezas: p * 2,
+              piezas: p,
             },
             {
               ...base,
@@ -3431,9 +3460,9 @@ function ProjectWorkspace({
                 ? base.claveLoc + " (Frontera Y)"
                 : "Frontera Y",
               largo: a,
-              ancho: "",
+              ancho: 2,
               alto: "",
-              piezas: p * 2,
+              piezas: p,
             },
           ];
         return [];
@@ -3575,10 +3604,10 @@ function ProjectWorkspace({
               `${a.tipo || "Acero"} #${a.numVarilla || "-"}`
             ).trim(),
             largo: calcAceroItem(a).mlPorPieza,
-            ancho: "",
+            ancho: a.piezas,
             kg_ml: PESOS_VARILLA[a.numVarilla || "-"] || 0,
             alto: "",
-            piezas: (parseFloat(a.piezas) || 1) * (parseFloat(e.piezas) || 1),
+            piezas: e.piezas || 1,
           }));
       });
     }
