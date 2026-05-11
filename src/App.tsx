@@ -31,6 +31,8 @@ import {
   FileSpreadsheet,
   Search,
   Calculator,
+  Layout,
+  Ruler,
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -1440,6 +1442,8 @@ function ProjectWorkspace({
   const [showGlobalSteelReport, setShowGlobalSteelReport] = useState(false);
   const [globalReportLevel, setGlobalReportLevel] = useState("todos");
 
+  const [structAdjModal, setStructAdjModal] = useState(null);
+
   const isFullyLoaded =
     l1 && l3 && l4 && l5 && l6 && l7 && l8 && isCatalogoLoaded && l10;
 
@@ -1609,6 +1613,28 @@ function ProjectWorkspace({
       );
     },
     [activePartidaId, activeLevelId, setPartidas],
+  );
+
+  const saveStructAdjustment = useCallback(
+    ({ tipoLosa, esquinaLosa, espesorLosa, espesorZapata }) => {
+      if (!structAdjModal) return;
+      const { id } = structAdjModal;
+
+      updateActiveEstructuras((prev) =>
+        prev.map((s) => {
+          if (s.id !== id) return s;
+          return {
+            ...s,
+            structTipoLosa: tipoLosa,
+            structEsquinaLosa: esquinaLosa,
+            structEspesorLosa: espesorLosa,
+            structEspesorZapata: espesorZapata,
+          };
+        }),
+      );
+      setStructAdjModal(null);
+    },
+    [structAdjModal, updateActiveEstructuras],
   );
 
   const updateActiveMetalEstructuras = useCallback(
@@ -2319,21 +2345,48 @@ function ProjectWorkspace({
 
   const calcConcreto = (r) => {
     const tipo = r.tipo?.toLowerCase() || "";
-    if (tipo === "nervadura" || tipo === "losa de vigueta") return 0;
+    if (
+      tipo === "nervadura" ||
+      tipo.includes("vigueta h=") ||
+      tipo.includes("vigueta h35") ||
+      tipo.includes("vigueta h25")
+    )
+      return 0;
+
+    const hOrig = parseFloat(r.alto) || 0;
+    const p = parseFloat(r.piezas) || 1;
+    const l = getEffectiveLargo(r);
+    const a = parseFloat(r.ancho) || 0;
+
+    const thickness = parseFloat(r.structEspesorLosa) || 0;
+    const thicknessZapata = parseFloat(r.structEspesorZapata) || 0;
+    const slabTypeInput = (r.structTipoLosa || "").toLowerCase();
+    const isCorner = r.structEsquinaLosa === true;
+
+    // Start with height minus footing thickness
+    let effectiveH = Math.max(0, hOrig - thicknessZapata);
+
+    if (slabTypeInput === "maciza") {
+      if (isCorner) {
+        effectiveH -= thickness / 2;
+      } else {
+        effectiveH -= thickness;
+      }
+    } else if (slabTypeInput === "vigueta") {
+      // For vigueta, do not subtract thickness as per request
+    } else {
+      const simpleDiscount = parseFloat(r.descuentoLosa) || 0;
+      effectiveH = Math.max(0, effectiveH - simpleDiscount);
+    }
+    
+    effectiveH = Math.max(0, effectiveH);
 
     if (tipo === "columna circular" || tipo === "pilas" || tipo === "pila") {
-      const diam = getEffectiveLargo(r);
-      const h = parseFloat(r.alto) || 0;
-      const p = parseFloat(r.piezas) || 1;
-      const radio = diam / 2;
-      return Math.round(Math.PI * radio * radio * h * p * 100) / 100;
+      const radio = l / 2;
+      return Math.round(Math.PI * radio * radio * effectiveH * p * 100) / 100;
     }
 
-    const volBruto =
-      getEffectiveLargo(r) *
-      (parseFloat(r.ancho) || 0) *
-      (parseFloat(r.alto) || 0) *
-      (parseFloat(r.piezas) || 1);
+    const volBruto = l * a * effectiveH * p;
     if (tipo === "losa nervada") {
       const volCasetones = getCasetonesTotalVol(r.casetones || [], r.piezas);
       return Math.max(0, Math.round((volBruto - volCasetones) * 100) / 100);
@@ -2343,15 +2396,61 @@ function ProjectWorkspace({
   const calcCimbra = (r) => {
     const l = getEffectiveLargo(r),
       a = parseFloat(r.ancho) || 0,
-      h = parseFloat(r.alto) || 0,
+      hOrig = parseFloat(r.alto) || 0,
       p = parseFloat(r.piezas) || 1,
       t = (r.tipo || "").toLowerCase();
+
+    const thicknessLosa = parseFloat(r.structEspesorLosa) || 0;
+    const thicknessZapata = parseFloat(r.structEspesorZapata) || 0;
+    const isEsquina = r.structEsquinaLosa === true;
+    const hasTipoLosa = !!r.structTipoLosa;
+
+    if (
+      t.includes("vigueta h=") ||
+      t.includes("vigueta h35") ||
+      t.includes("vigueta h25")
+    )
+      return 0;
+
+    // Base height for cimbra after zapata discount
+    const hBase = Math.max(0, hOrig - thicknessZapata);
+
     let area = 0;
-    if (t === "columna" || t === "dado") area = (l + a) * 2 * h * p;
-    else if (t === "columna circular") area = Math.PI * l * h * p;
-    else if (t === "trabe" || t === "contratrabe")
-      area = (l * a + l * h * 2) * p;
-    else if (
+    if (t === "columna" || t === "dado") {
+      let perimeter_eff;
+      if (hasTipoLosa) {
+        if (isEsquina) {
+          // (l+a) at hBase + (l+a) at (hBase - thicknessLosa)
+          perimeter_eff = (l + a) * hBase + (l + a) * (hBase - thicknessLosa);
+        } else {
+          perimeter_eff = (l + a) * 2 * (hBase - thicknessLosa);
+        }
+      } else {
+        const simpleDiscount = parseFloat(r.descuentoLosa) || 0;
+        perimeter_eff = (l + a) * 2 * (hBase - simpleDiscount);
+      }
+      area = Math.max(0, perimeter_eff) * p;
+    } else if (t === "columna circular") {
+      let h_eff = hBase;
+      if (hasTipoLosa) {
+        if (isEsquina) h_eff = hBase - thicknessLosa / 2;
+        else h_eff = hBase - thicknessLosa;
+      } else {
+        const simpleDiscount = parseFloat(r.descuentoLosa) || 0;
+        h_eff = Math.max(0, hBase - simpleDiscount);
+      }
+      area = Math.PI * l * h_eff * p;
+    } else if (t === "trabe" || t === "contratrabe") {
+      let sideSum;
+      if (hasTipoLosa) {
+        if (isEsquina) sideSum = hBase + (hBase - thicknessLosa);
+        else sideSum = (hBase - thicknessLosa) * 2;
+      } else {
+        const simpleDiscount = parseFloat(r.descuentoLosa) || 0;
+        sideSum = (hBase - simpleDiscount) * 2;
+      }
+      area = (l * a + l * sideSum) * p;
+    } else if (
       t === "losa" ||
       t === "losa nervada" ||
       t === "losa de vigueta" ||
@@ -2359,9 +2458,26 @@ function ProjectWorkspace({
       t === "rampa de escalera"
     )
       area = l * a * p;
-    else if (t === "muro" || t === "muro curvo") area = l * h * 2 * p;
-    else if (t === "zapata aislada" || t === "zapata corrida")
-      area = (l + a) * 2 * p;
+    else if (t === "muro" || t === "muro curvo") {
+      let areaMuro;
+      if (hasTipoLosa) {
+        if (isEsquina) {
+          // One face full hBase, other hBase - thicknessLosa
+          areaMuro = l * hBase + l * (hBase - thicknessLosa);
+        } else {
+          areaMuro = l * (hBase - thicknessLosa) * 2;
+        }
+      } else {
+        const simpleDiscount = parseFloat(r.descuentoLosa) || 0;
+        const h_eff = Math.max(0, hBase - simpleDiscount);
+        areaMuro = l * h_eff * 2;
+      }
+      area = Math.max(0, areaMuro) * p;
+    } else if (t === "zapata aislada" || t === "zapata corrida") {
+      area = (l + a) * 2 * hBase * p;
+    } else {
+      area = (l + a) * 2 * hBase * p;
+    }
     return Math.round(area * 100) / 100;
   };
   const calcCimbraFrontera = (r) => {
@@ -2373,7 +2489,9 @@ function ProjectWorkspace({
     if (
       t === "losa" ||
       t === "losa nervada" ||
-      t === "losa de vigueta" ||
+      t.includes("losa vigueta") ||
+      t.includes("losa de vigueta") ||
+      t.includes("losa doble vigueta") ||
       t === "escalera papelillo" ||
       t === "rampa de escalera"
     )
@@ -2424,8 +2542,14 @@ function ProjectWorkspace({
       totalExcavacion = 0,
       totalAfine = 0,
       totalRelleno = 0,
-      totalCasetonesGeneral = 0;
+      totalCasetonesGeneral = 0,
+      totalViguetaH25 = 0,
+      totalViguetaH35 = 0,
+      totalDobleViguetaH25 = 0,
+      totalDobleViguetaH35 = 0,
+      totalAreaViguetasGlobal = 0;
     let totalCimbraFrontera = 0;
+    let totalCimbraFronteraViguetas = 0;
     const breakdown = {},
       aceroCimentacionDetalle = {},
       aceroEstructuraDetalle = {},
@@ -2447,6 +2571,9 @@ function ProjectWorkspace({
         cim = calcCimbra(e),
         cimFrontera = calcCimbraFrontera(e),
         aceroKg = calcAceroTotalKg(acerosCorregidos, e.piezas);
+      const l = getEffectiveLargo(e);
+      const a = parseFloat(e.ancho) || 0;
+      const piezasMultiplier = parseFloat(e.piezas || 1) || 1;
       const tipo = (e.tipo || "Sin Seleccionar").toLowerCase().trim();
       const isCimentacion = [
         "zapata aislada",
@@ -2460,6 +2587,10 @@ function ProjectWorkspace({
         "losa",
         "losa nervada",
         "losa de vigueta",
+        "losa vigueta h=35",
+        "losa vigueta h=25",
+        "losa doble vigueta h=25",
+        "losa doble vigueta h=35",
         "trabe",
         "nervadura",
         "columna",
@@ -2471,6 +2602,10 @@ function ProjectWorkspace({
         "losa",
         "losa nervada",
         "losa de vigueta",
+        "losa vigueta h=35",
+        "losa vigueta h=25",
+        "losa doble vigueta h=25",
+        "losa doble vigueta h=35",
         "trabe",
         "nervadura",
         "escalera papelillo",
@@ -2504,6 +2639,17 @@ function ProjectWorkspace({
 
       totalCimbra += cim;
       totalCimbraFrontera += cimFrontera;
+      if (tipo.includes("vigueta")) {
+        totalCimbraFronteraViguetas += cimFrontera;
+        totalAreaViguetasGlobal += l * a * piezasMultiplier;
+      }
+
+      if (tipo === "losa vigueta h=25") totalViguetaH25 += l * a * piezasMultiplier;
+      else if (tipo === "losa vigueta h=35") totalViguetaH35 += l * a * piezasMultiplier;
+      else if (tipo === "losa doble vigueta h=25")
+        totalDobleViguetaH25 += l * a * piezasMultiplier;
+      else if (tipo === "losa doble vigueta h=35")
+        totalDobleViguetaH35 += l * a * piezasMultiplier;
 
       const isConcEstGroup = [
         "losa",
@@ -2526,9 +2672,10 @@ function ProjectWorkspace({
         tipo === "muros curvos"
       )
         groupOtros = "Muros";
-      else if (tipo === "losa" || tipo === "losas") groupOtros = "Losas";
-      else if (tipo === "losa nervada") groupOtros = "Losas Nervadas";
-      else if (tipo === "losa de vigueta") groupOtros = "Losas de Vigueta";
+      else if (tipo === "losa" || tipo === "losas" || tipo === "losa nervada") groupOtros = "Losas";
+      else if (tipo.includes("vigueta")) {
+        groupOtros = "Losas de Vigueta";
+      }
       else if (tipo === "escalera papelillo" || tipo === "rampa de escalera")
         groupOtros = "Losas";
       else if (tipo === "trabe") groupOtros = "Trabes";
@@ -2544,6 +2691,7 @@ function ProjectWorkspace({
         if (!breakdown[key]) {
           breakdown[key] = {
             tipoOriginal: customTipo || tipo,
+            hasLosaNervada: tipo === "losa nervada" || customTipo === "losa nervada",
             isCimentacion: isCimentacion,
             concreto: 0,
             cimbra: 0,
@@ -2555,6 +2703,11 @@ function ProjectWorkspace({
             afine: 0,
             relleno: 0,
             casetones: 0,
+            areaViguetasH25: 0,
+            areaViguetasH35: 0,
+            areaDobleViguetaH25: 0,
+            areaDobleViguetaH35: 0,
+            areaViguetasGENERIC: 0,
             cimbraEscaleraPapelillo: 0,
             cimbraRampaEscalera: 0,
             obturacionMuros: 0,
@@ -2592,9 +2745,10 @@ function ProjectWorkspace({
       }
 
       if (tipo === "losa nervada") {
-        const volCasetones = getCasetonesTotalVol(e.casetones || [], e.piezas);
+        const volCasetones = getCasetonesTotalVol(e.casetones || [], piezasMultiplier);
         breakdown[groupOtros].casetones += volCasetones;
         totalCasetonesGeneral += volCasetones;
+        breakdown[groupOtros].hasLosaNervada = true;
       }
 
       if (tipo === "escalera papelillo") {
@@ -2605,6 +2759,19 @@ function ProjectWorkspace({
         ensureBucket("Losas", "losa");
         breakdown["Losas"].cimbraFrontera += cimFrontera;
         breakdown["Losas"].cimbraRampaEscalera += cim;
+      } else if (tipo.includes("vigueta")) {
+        ensureBucket("Losas de Vigueta", "Losas de Vigueta");
+        breakdown["Losas de Vigueta"].cimbraFrontera += cimFrontera;
+        breakdown["Losas de Vigueta"].cimbra += cim;
+        if (tipo.includes("h=25")) {
+          if (tipo.includes("doble")) breakdown["Losas de Vigueta"].areaDobleViguetaH25 += l * a * piezasMultiplier;
+          else breakdown["Losas de Vigueta"].areaViguetasH25 += l * a * piezasMultiplier;
+        } else if (tipo.includes("h=35")) {
+          if (tipo.includes("doble")) breakdown["Losas de Vigueta"].areaDobleViguetaH35 += l * a * piezasMultiplier;
+          else breakdown["Losas de Vigueta"].areaViguetasH35 += l * a * piezasMultiplier;
+        } else {
+          breakdown["Losas de Vigueta"].areaViguetasGENERIC += l * a * piezasMultiplier;
+        }
       } else {
         breakdown[groupOtros].cimbra += cim;
         breakdown[groupOtros].cimbraFrontera += cimFrontera;
@@ -2612,7 +2779,6 @@ function ProjectWorkspace({
 
       const p = parseFloat(e.piezas) || 1;
       const h = parseFloat(e.alto) || 0;
-      const l = getEffectiveLargo(e);
       if (
         tipo === "muro" ||
         tipo === "muro curvo" ||
@@ -2668,7 +2834,6 @@ function ProjectWorkspace({
       }
 
       if (["zapata aislada", "zapata corrida", "contratrabe"].includes(tipo)) {
-        const a = parseFloat(e.ancho) || 0;
         const plantillaItem = (l + 0.5) * (a + 0.5) * p,
           excavacionItem = plantillaItem * 1.5,
           afineItem = plantillaItem,
@@ -2685,8 +2850,6 @@ function ProjectWorkspace({
 
       if (tipo === "pilas" || tipo === "pila") {
         const diam = getEffectiveLargo(e);
-        const h = parseFloat(e.alto) || 0;
-        const p = parseFloat(e.piezas) || 1;
         const diamExc = diam + 1.0;
         const radioExc = diamExc / 2;
         const areaExc = Math.PI * radioExc * radioExc;
@@ -2767,6 +2930,12 @@ function ProjectWorkspace({
       aceroEstructuraDetalle,
       aceroEstructuraGlobalDetalle,
       totalCimbraFrontera,
+      totalCimbraFronteraViguetas,
+      totalViguetaH25,
+      totalViguetaH35,
+      totalDobleViguetaH25,
+      totalDobleViguetaH35,
+      totalAreaViguetasGlobal,
       totalPlantilla,
       totalExcavacion,
       totalAfine,
@@ -3074,8 +3243,7 @@ function ProjectWorkspace({
         if (t === "columna") eGroup = "columnas";
         else if (t === "columna circular") eGroup = "columnas circulares";
         else if (t === "muro" || t === "muro curvo") eGroup = "muros";
-        else if (t === "losa") eGroup = "losas";
-        else if (t === "losa nervada") eGroup = "losas nervadas";
+        else if (t === "losa" || t === "losa nervada") eGroup = "losas";
         else if (t === "trabe") eGroup = "trabes";
         else if (t === "nervadura") eGroup = "nervaduras";
         else if (t === "zapata aislada")
@@ -3315,6 +3483,38 @@ function ProjectWorkspace({
             },
           ];
         return [];
+      });
+    } else if (material && material.startsWith("areaVigueta") || material === "areaDobleViguetaH25" || material === "areaDobleViguetaH35") {
+      rowsToCopy = filtered.flatMap((e) => {
+        const l = getEffectiveLargo(e);
+        const a = parseFloat(e.ancho) || 0;
+        const p = parseFloat(e.piezas) || 1;
+        
+        const isH25 = material.includes("H25");
+        const isH35 = material.includes("H35");
+        const isDoble = material.includes("Doble");
+        
+        const tipoMatch = (e.tipo || "").toLowerCase();
+        
+        let match = false;
+        if (isDoble && isH25 && tipoMatch.includes("doble") && tipoMatch.includes("h=25")) match = true;
+        else if (isDoble && isH35 && tipoMatch.includes("doble") && tipoMatch.includes("h=35")) match = true;
+        else if (!isDoble && isH25 && !tipoMatch.includes("doble") && tipoMatch.includes("h=25")) match = true;
+        else if (!isDoble && isH35 && !tipoMatch.includes("doble") && tipoMatch.includes("h=35")) match = true;
+        else if (material === "areaViguetasGENERIC" && !tipoMatch.includes("h=25") && !tipoMatch.includes("h=35")) match = true;
+        else if (material === "areaViguetas") match = true; // fallback
+        
+        if (!match) return [];
+        return [
+          {
+            eje: e.eje || "",
+            claveLoc: e.clave || "",
+            largo: l,
+            ancho: a,
+            alto: "",
+            piezas: p,
+          },
+        ];
       });
     } else if (material === "pasosMuros") {
       rowsToCopy = filtered.flatMap((e) => {
@@ -3765,6 +3965,29 @@ function ProjectWorkspace({
       );
     },
     [updateActiveEstructuras],
+  );
+
+  const handleStructAltoDoubleClick = useCallback(
+    (structId) => {
+      const struct = estructuras.find((s) => s.id === structId);
+      if (!struct) return;
+
+      const tipo = (struct.tipo || "").toLowerCase();
+      if (
+        !["trabe", "contratrabe", "columna", "columna circular", "muro", "muro curvo", "nervadura"].includes(tipo.trim())
+      ) {
+        return;
+      }
+      setStructAdjModal({
+        id: structId,
+        tipo: tipo.trim(),
+        tipoLosa: struct.structTipoLosa || "maciza",
+        esquinaLosa: struct.structEsquinaLosa || false,
+        espesorLosa: struct.structEspesorLosa || "0.10",
+        espesorZapata: struct.structEspesorZapata || "0",
+      });
+    },
+    [estructuras],
   );
 
   const updateSteelItem = useCallback(
@@ -5391,6 +5614,28 @@ function ProjectWorkspace({
                 >
                   <ClipboardPaste size={14} /> Pegar
                 </button>
+                <input
+                  type="text"
+                  placeholder="Notas internas..."
+                  value={generadores[concepto.id]?.[nivel.id]?.comentario || ""}
+                  onChange={(e) => {
+                    updateActiveGeneradores((prev) => {
+                      const c = prev[concepto.id] || {};
+                      const n = c[nivel.id] || { rows: [] };
+                      return {
+                        ...prev,
+                        [concepto.id]: {
+                          ...c,
+                          [nivel.id]: {
+                            ...n,
+                            comentario: e.target.value,
+                          },
+                        },
+                      };
+                    });
+                  }}
+                  className="flex-1 min-w-[200px] max-w-sm px-3 py-1.5 text-xs border border-slate-300 rounded focus:border-blue-500 outline-none"
+                />
                 {selectedGeneratorRows.length > 0 && (
                   <button
                     onClick={() => {
@@ -9012,7 +9257,7 @@ function ProjectWorkspace({
                             className="w-full p-1.5 bg-transparent font-bold uppercase outline-none focus:bg-white text-xs text-center"
                           />
                         </td>
-                        <td className="p-0 border-r">
+                        <td className="p-0 border-r relative">
                           <select
                             className="w-full p-1.5 bg-transparent outline-none font-bold text-slate-700 uppercase cursor-pointer text-[10px]"
                             value={e.tipo || ""}
@@ -9039,9 +9284,10 @@ function ProjectWorkspace({
                             <option value="muro curvo">Muro Curvo</option>
                             <option value="losa">Losa</option>
                             <option value="losa nervada">Losa Nervada</option>
-                            <option value="losa de vigueta">
-                              Losa de Vigueta
-                            </option>
+                            <option value="losa vigueta h=35">Losa Vigueta h=35</option>
+                            <option value="losa vigueta h=25">Losa Vigueta h=25</option>
+                            <option value="losa doble vigueta h=25">Losa Doble Vigueta h=25</option>
+                            <option value="losa doble vigueta h=35">Losa Doble Vigueta h=35</option>
                             <option value="escalera papelillo">
                               Escalera Papelillo
                             </option>
@@ -9056,6 +9302,12 @@ function ProjectWorkspace({
                             <option value="trabe">Trabe</option>
                             <option value="nervadura">Nervadura</option>
                           </select>
+                          {["trabe", "contratrabe", "columna", "columna circular", "muro", "muro curvo"].includes((e.tipo || "").toLowerCase()) && (
+                            <Layout
+                              size={10}
+                              className="absolute top-1 right-1 text-sky-500 animate-pulse pointer-events-none"
+                            />
+                          )}
                         </td>
                         <td className="p-0 border-r bg-indigo-50/10 text-center">
                           <input
@@ -9097,13 +9349,28 @@ function ProjectWorkspace({
                           />
                         </td>
                         <td className="p-0 border-r bg-blue-50/20">
-                          <DebouncedCell
-                            value={e.alto}
-                            onChange={(v) =>
-                              updateEstructuraField(e.id, "alto", v)
-                            }
-                            className="w-full p-1.5 bg-transparent text-center text-blue-900 font-bold text-xs"
-                          />
+                          <div className="relative group">
+                            <DebouncedCell
+                              value={e.alto}
+                              onChange={(v) =>
+                                updateEstructuraField(e.id, "alto", v)
+                              }
+                              onDoubleClick={() => handleStructAltoDoubleClick(e.id)}
+                              className="w-full p-1.5 bg-transparent text-center text-blue-900 font-bold text-xs"
+                              title={e.structEspesorLosa || e.structEspesorZapata ? `Ajuste Losa: ${e.structEspesorLosa}m, Zapata: ${e.structEspesorZapata}m` : "Doble click para descontar espesor de losa o zapata"}
+                            />
+                            {["trabe", "contratrabe", "columna", "columna circular", "muro", "muro curvo"].includes((e.tipo || "").toLowerCase().trim()) && (
+                              <Layout
+                                size={12}
+                                className="absolute top-1 right-1 text-sky-500 font-black animate-pulse-slow"
+                              />
+                            )}
+                            {parseFloat(e.descuentoLosa || 0) > 0 && (
+                              <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[8px] px-1 rounded-full font-black pointer-events-none">
+                                -{e.descuentoLosa}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="p-0 border-r bg-blue-50/20">
                           <DebouncedCell
@@ -9166,31 +9433,23 @@ function ProjectWorkspace({
                               : "-"}
                         </td>
                         <td
-                          className={`p-0 border-r ${e.tipo?.toLowerCase() === "losa de vigueta" || e.tipo?.toLowerCase() === "losa nervada" ? "bg-slate-50 cursor-not-allowed" : "bg-slate-100/50 hover:bg-slate-200 cursor-pointer"} transition-colors`}
+                          className={`p-0 border-r ${e.tipo?.toLowerCase().includes("vigueta") ? "bg-slate-50 cursor-not-allowed" : "bg-slate-100/50 hover:bg-slate-200 cursor-pointer"} transition-colors`}
                           onClick={() => {
-                            if (
-                              e.tipo?.toLowerCase() !== "losa de vigueta" &&
-                              e.tipo?.toLowerCase() !== "losa nervada"
-                            ) {
+                            if (!e.tipo?.toLowerCase().includes("vigueta")) {
                               setActiveSteelSubmodal(e.id);
                             }
                           }}
                         >
                           <div
-                            className={`w-full h-full p-2 text-center font-black flex justify-center items-center gap-1 group ${e.tipo?.toLowerCase() === "losa de vigueta" || e.tipo?.toLowerCase() === "losa nervada" ? "opacity-30" : "text-slate-700"}`}
+                            className={`w-full h-full p-2 text-center font-black flex justify-center items-center gap-1 group ${e.tipo?.toLowerCase().includes("vigueta") ? "opacity-30" : "text-slate-700"}`}
                           >
-                            {e.tipo?.toLowerCase() !== "losa de vigueta" &&
-                            e.tipo?.toLowerCase() !== "losa nervada" &&
-                            aceroKg > 0 ? (
+                            {!e.tipo?.toLowerCase().includes("vigueta") && aceroKg > 0 ? (
                               <span className="text-sm">
                                 {aceroKg.toFixed(2)}
                               </span>
                             ) : (
                               <span className="text-slate-400 font-normal text-[10px]">
-                                {e.tipo?.toLowerCase() === "losa de vigueta" ||
-                                e.tipo?.toLowerCase() === "losa nervada"
-                                  ? "-"
-                                  : "0.00"}
+                                {e.tipo?.toLowerCase().includes("vigueta") ? "-" : "0.00"}
                               </span>
                             )}
                             <Wrench
@@ -9473,7 +9732,6 @@ function ProjectWorkspace({
                     "Columnas",
                     "Columnas Circulares",
                     "Losas de Vigueta",
-                    "Losas Nervadas",
                     "Losas",
                     "Trabes",
                     "Nervaduras",
@@ -9547,7 +9805,7 @@ function ProjectWorkspace({
                          <td style="border: none;"></td>
                          <td style="border: 1px solid #f8cbad; font-weight: bold; text-align: left; padding-left: 8px; color: #000000; font-size: 10pt; vertical-align: middle;">${tipo}</td>
                          <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${concText}</td>
-                         <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.casetones > 0 || tipo === "Losas Nervadas" ? data.casetones.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.casetones > 0 || data.hasLosaNervada ? data.casetones.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.cimbra > 0 && tipo !== "Muros" && !isColumnGrp ? data.cimbra.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${tipo === "Muros" && data.cimbraMuros_0_3 > 0 ? data.cimbraMuros_0_3.toFixed(2) : isColumnGrp && data.cimbraColumnas_0_3 > 0 ? data.cimbraColumnas_0_3.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #e36c09; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${tipo === "Muros" && data.cimbraMuros_3_6 > 0 ? data.cimbraMuros_3_6.toFixed(2) : isColumnGrp && data.cimbraColumnas_3_6 > 0 ? data.cimbraColumnas_3_6.toFixed(2) : "-"}</td>
@@ -9564,7 +9822,7 @@ function ProjectWorkspace({
                          <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle;">${data.pasosMuros > 0 ? data.pasosMuros : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.emplayerColumnas > 0 ? data.emplayerColumnas.toFixed(2) : "-"}</td>
                          <td style="border: 1px solid #f8cbad; color: #548235; font-weight: bold; font-size: 10pt; vertical-align: middle;">${anclajesStr}</td>
-                         <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.aceroKg > 0 ? data.aceroKg.toFixed(2) : "-"}</td>
+                         <td style="border: 1px solid #f8cbad; color: #2f5496; font-weight: bold; font-size: 10pt; vertical-align: middle; mso-number-format:'0\\.00';">${data.aceroKg > 0 && tipo !== "Losas de Vigueta" ? data.aceroKg.toFixed(2) : "-"}</td>
                       </tr>`;
                     });
                   html += `</tbody></table>`;
@@ -9658,6 +9916,91 @@ function ProjectWorkspace({
                       </span>
                     </div>
                   </div>
+
+                  {estructuraSummary.totalAreaViguetasGlobal > 0 && (
+                    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden">
+                      <div className="absolute left-0 top-0 bottom-0 w-2 bg-teal-600"></div>
+                      <span className="text-[10px] font-black text-teal-600 uppercase tracking-widest block mb-1">
+                        Total Área Losa Vigueta
+                      </span>
+                      <div className="flex justify-between items-end">
+                        <span className="text-3xl font-black text-slate-800">
+                          {estructuraSummary.totalAreaViguetasGlobal.toFixed(2)}
+                        </span>
+                        <span className="text-teal-600 font-black text-xl">
+                          m²
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {estructuraSummary.totalViguetaH25 > 0 && (
+                    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden">
+                      <div className="absolute left-0 top-0 bottom-0 w-2 bg-teal-400"></div>
+                      <span className="text-[10px] font-black text-teal-600 uppercase tracking-widest block mb-1">
+                        Losa Vigueta h=25
+                      </span>
+                      <div className="flex justify-between items-end">
+                        <span className="text-3xl font-black text-slate-800">
+                          {estructuraSummary.totalViguetaH25.toFixed(2)}
+                        </span>
+                        <span className="text-teal-400 font-black text-xl">
+                          m²
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {estructuraSummary.totalViguetaH35 > 0 && (
+                    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden">
+                      <div className="absolute left-0 top-0 bottom-0 w-2 bg-teal-500"></div>
+                      <span className="text-[10px] font-black text-teal-700 uppercase tracking-widest block mb-1">
+                        Losa Vigueta h=35
+                      </span>
+                      <div className="flex justify-between items-end">
+                        <span className="text-3xl font-black text-slate-800">
+                          {estructuraSummary.totalViguetaH35.toFixed(2)}
+                        </span>
+                        <span className="text-teal-500 font-black text-xl">
+                          m²
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {estructuraSummary.totalDobleViguetaH25 > 0 && (
+                    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden">
+                      <div className="absolute left-0 top-0 bottom-0 w-2 bg-teal-600"></div>
+                      <span className="text-[10px] font-black text-teal-800 uppercase tracking-widest block mb-1">
+                        Doble Vigueta h=25
+                      </span>
+                      <div className="flex justify-between items-end">
+                        <span className="text-3xl font-black text-slate-800">
+                          {estructuraSummary.totalDobleViguetaH25.toFixed(2)}
+                        </span>
+                        <span className="text-teal-600 font-black text-xl">
+                          m²
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {estructuraSummary.totalDobleViguetaH35 > 0 && (
+                    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden">
+                      <div className="absolute left-0 top-0 bottom-0 w-2 bg-teal-700"></div>
+                      <span className="text-[10px] font-black text-teal-900 uppercase tracking-widest block mb-1">
+                        Doble Vigueta h=35
+                      </span>
+                      <div className="flex justify-between items-end">
+                        <span className="text-3xl font-black text-slate-800">
+                          {estructuraSummary.totalDobleViguetaH35.toFixed(2)}
+                        </span>
+                        <span className="text-teal-700 font-black text-xl">
+                          m²
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   {estructuraSummary.totalCasetonesGeneral > 0 && (
                     <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm relative overflow-hidden">
@@ -10307,7 +10650,6 @@ function ProjectWorkspace({
                           "Columnas",
                           "Columnas Circulares",
                           "Losas de Vigueta",
-                          "Losas Nervadas",
                           "Losas",
                           "Trabes",
                           "Nervaduras",
@@ -10339,6 +10681,119 @@ function ProjectWorkspace({
                               {tipo}
                             </div>
                             <div className="flex flex-wrap gap-3 flex-1">
+                              {data.areaViguetasH25 > 0 && (
+                                <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                  <div>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Losa Vigueta h=25
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.areaViguetasH25.toFixed(2)} m2
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleCopyStructure(tipo, "areaViguetaH25")}
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
+                                </div>
+                              )}
+                              {data.areaViguetasH35 > 0 && (
+                                <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                  <div>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Losa Vigueta h=35
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.areaViguetasH35.toFixed(2)} m2
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleCopyStructure(tipo, "areaViguetaH35")}
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
+                                </div>
+                              )}
+                              {data.areaDobleViguetaH25 > 0 && (
+                                <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                  <div>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Doble Vigueta h=25
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.areaDobleViguetaH25.toFixed(2)} m2
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleCopyStructure(tipo, "areaDobleViguetaH25")}
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
+                                </div>
+                              )}
+                              {data.areaDobleViguetaH35 > 0 && (
+                                <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                  <div>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Doble Vigueta h=35
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.areaDobleViguetaH35.toFixed(2)} m2
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleCopyStructure(tipo, "areaDobleViguetaH35")}
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
+                                </div>
+                              )}
+                              {data.areaViguetasGENERIC > 0 && (
+                                <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                  <div>
+                                    <span className="block text-[8px] font-black text-slate-500 uppercase">
+                                      Losa Vigueta Genérica
+                                    </span>
+                                    <span className="text-sm font-black text-slate-800">
+                                      {data.areaViguetasGENERIC.toFixed(2)} m2
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleCopyStructure(tipo, "areaViguetasGENERIC")}
+                                    className="text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
+                                </div>
+                              )}
+                              {data.cimbraFrontera > 0 && (
+                                <div className="bg-orange-100 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
+                                  <div>
+                                    <span className="block text-[8px] font-black text-orange-600 uppercase">
+                                      Cim. Frontera
+                                    </span>
+                                    <span className="text-sm font-black text-orange-800">
+                                      {data.cimbraFrontera.toFixed(2)} ml
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() =>
+                                      handleCopyStructure(
+                                        tipo,
+                                        "cimbraFrontera",
+                                      )
+                                    }
+                                    className="text-orange-500 hover:text-orange-700"
+                                  >
+                                    <Clipboard size={14} />
+                                  </button>
+                                </div>
+                              )}
                               {data.concreto > 0 && !data.isCimentacion && (
                                 <div className="bg-white border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
@@ -10359,7 +10814,7 @@ function ProjectWorkspace({
                                   </button>
                                 </div>
                               )}
-                              {(data.casetones > 0 || tipo === "Losas Nervadas") && (
+                              {(data.casetones > 0 || data.hasLosaNervada) && (
                                 <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
                                     <span className="block text-[8px] font-black text-sky-600 uppercase">
@@ -10382,13 +10837,12 @@ function ProjectWorkspace({
                               {data.cimbra > 0 &&
                                 tipo !== "Muros" &&
                                 tipo !== "Columnas" &&
-                                tipo !== "Columnas Circulares" && (
+                                tipo !== "Columnas Circulares" &&
+                                tipo !== "Losas de Vigueta" && (
                                   <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                     <div>
                                       <span className="block text-[8px] font-black text-amber-700 uppercase">
-                                        {tipo === "Losas de Vigueta"
-                                          ? "Losa Vigueta"
-                                          : "Cimbra"}
+                                        Cimbra
                                       </span>
                                       <span className="text-sm font-black text-amber-900">
                                         {data.cimbra.toFixed(2)} m2/ml
@@ -10827,29 +11281,6 @@ function ProjectWorkspace({
                                   </button>
                                 </div>
                               )}
-                              {data.cimbraFrontera > 0 && (
-                                <div className="bg-orange-100 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
-                                  <div>
-                                    <span className="block text-[8px] font-black text-orange-600 uppercase">
-                                      Cim. Frontera
-                                    </span>
-                                    <span className="text-sm font-black text-orange-800">
-                                      {data.cimbraFrontera.toFixed(2)} ml
-                                    </span>
-                                  </div>
-                                  <button
-                                    onClick={() =>
-                                      handleCopyStructure(
-                                        tipo,
-                                        "cimbraFrontera",
-                                      )
-                                    }
-                                    className="text-orange-500 hover:text-orange-700"
-                                  >
-                                    <Clipboard size={14} />
-                                  </button>
-                                </div>
-                              )}
                               {data.cimbraEscaleraPapelillo > 0 && (
                                 <div className="bg-amber-100 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-4 min-w-[140px] shadow-sm">
                                   <div>
@@ -10897,6 +11328,7 @@ function ProjectWorkspace({
                                 </div>
                               )}
                               {data.aceroKg > 0 &&
+                                tipo !== "Losas de Vigueta" &&
                                 !data.isCimentacion &&
                                 ![
                                   "losa",
@@ -12197,6 +12629,14 @@ function ProjectWorkspace({
           </div>
         </div>
       )}
+
+      {structAdjModal && (
+        <StructAdjustmentModal
+          structAdjModal={structAdjModal}
+          onClose={() => setStructAdjModal(null)}
+          onSave={saveStructAdjustment}
+        />
+      )}
     </div>
   );
 }
@@ -12350,19 +12790,25 @@ export default function App() {
     loadedCatalogo,
     savingCatalogo,
   ] = usePersistentState("xdifica_global_catalogo_v3", [], user);
+  const [
+    catalogoPartidasGlobal,
+    setCatalogoPartidasGlobal,
+    loadedCatPartidas,
+    savingCatPartidas,
+  ] = usePersistentState("xdifica_global_catalogo_partidas_v4", [], user);
   const [activeProjectId, setActiveProjectId] = useState(null);
   const [showGlobalCatalogo, setShowGlobalCatalogo] = useState(false);
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (savingProjects || savingCatalogo) {
+      if (savingProjects || savingCatalogo || savingCatPartidas) {
         e.preventDefault();
         e.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [savingProjects, savingCatalogo]);
+  }, [savingProjects, savingCatalogo, savingCatPartidas]);
 
   useEffect(() => {
     if (!loadedProjects || !authInit || !user) return;
@@ -12464,7 +12910,7 @@ export default function App() {
   };
 
   if (!authInit) return <LoadingScreen text="Conectando con la nube..." />;
-  if (!loadedProjects || !loadedCatalogo)
+  if (!loadedProjects || !loadedCatalogo || !loadedCatPartidas)
     return <LoadingScreen text="Sincronizando obras..." />;
 
   if (activeProjectId) {
@@ -12528,6 +12974,8 @@ export default function App() {
           user={user}
           catalogoConceptos={catalogoConceptos}
           setCatalogoConceptos={setCatalogoConceptos}
+          catalogoPartidasGlobal={catalogoPartidasGlobal}
+          setCatalogoPartidasGlobal={setCatalogoPartidasGlobal}
         />
       )}
     </>
@@ -12539,10 +12987,16 @@ function GlobalCatalogoModal({
   user,
   catalogoConceptos,
   setCatalogoConceptos,
+  catalogoPartidasGlobal = [],
+  setCatalogoPartidasGlobal = () => {},
 }) {
+  const [activeGlobalPartidaId, setActiveGlobalPartidaId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [partidaToDelete, setPartidaToDelete] = useState(null);
   const [catColWidths, setCatColWidths] = usePersistentState(
     "xdifica_catColWidths_v2",
     {
+      selection: 40,
       id: 100,
       clave: 80,
       cc: 60,
@@ -12601,9 +13055,90 @@ function GlobalCatalogoModal({
     [setCatalogoConceptos],
   );
 
+  const handleCreatePartidaGlobal = () => {
+    const newId = `CAT-PARTIDA-${Date.now().toString(36).toUpperCase()}`;
+    setCatalogoPartidasGlobal(prev => [
+      ...prev,
+      {
+        id: newId,
+        nombre: "NUEVA PARTIDA",
+      }
+    ]);
+  };
+
+  const handleDeletePartidaGlobal = (pid) => {
+    setPartidaToDelete(pid);
+  };
+  
+  const confirmDeletePartida = () => {
+    if (partidaToDelete) {
+      setCatalogoPartidasGlobal(prev => prev.filter(p => p.id !== partidaToDelete));
+      setCatalogoConceptos(prev => prev.map(c => c.partidaId === partidaToDelete ? { ...c, partidaId: null } : c));
+      if (activeGlobalPartidaId === partidaToDelete) setActiveGlobalPartidaId(null);
+      setPartidaToDelete(null);
+    }
+  };
+
+  const handlePasteFromExcel = useCallback(
+    (e) => {
+      if (!activeGlobalPartidaId) return; // Only paste inside a partida
+      const clipboardData = e.clipboardData;
+      if (!clipboardData) return;
+      
+      const text = clipboardData.getData("text/plain");
+      if (!text) return;
+      
+      const lines = text.split(/\r?\n/).filter(line => line.trim() !== "");
+      if (lines.length > 1 || text.includes("\t")) {
+        e.preventDefault();
+        const newRows = lines.map(line => {
+          const cols = line.split("\t");
+          if (cols.length >= 6) {
+            return {
+              id: cols[0]?.trim() || `NEW-${Date.now()}-${Math.floor(Math.random()*10000)}`,
+              partidaId: activeGlobalPartidaId,
+              clave: "",
+              cc: "",
+              justificacion: "",
+              descripcion: cols[4]?.trim() || "",
+              unidad: cols[5]?.trim() || "",
+            };
+          } else {
+            return {
+              id: cols[0]?.trim() || `NEW-${Date.now()}-${Math.floor(Math.random()*10000)}`,
+              partidaId: activeGlobalPartidaId,
+              clave: "",
+              cc: "",
+              justificacion: "",
+              descripcion: cols[1]?.trim() || "",
+              unidad: cols[2]?.trim() || "",
+            };
+          }
+        });
+        
+        setCatalogoConceptos(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const toAdd = newRows.map(r => {
+             let newId = r.id;
+             if (existingIds.has(newId)) {
+                 newId = `${newId}-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+             }
+             existingIds.add(newId);
+             return { ...r, id: newId };
+          });
+          return [...prev, ...toAdd];
+        });
+      }
+    },
+    [setCatalogoConceptos, activeGlobalPartidaId]
+  );
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl shadow-xl w-full max-w-6xl flex flex-col h-[80vh] overflow-hidden">
+      <div 
+        className="bg-white rounded-3xl shadow-xl w-full max-w-6xl flex flex-col h-[80vh] overflow-hidden"
+        onPaste={handlePasteFromExcel}
+      >
         <div className="bg-teal-800 text-white p-6 flex justify-between items-center shrink-0 border-b border-teal-900">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-teal-700 rounded-xl shadow-inner">
@@ -12625,146 +13160,443 @@ function GlobalCatalogoModal({
             <X size={24} />
           </button>
         </div>
-        <div className="flex-1 overflow-x-auto bg-slate-50 p-4 md:p-6">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-w-[900px]">
-            <table className="text-sm text-left border-collapse table-fixed w-full">
-              <thead className="bg-slate-800 text-white uppercase tracking-wider select-none font-black sticky top-0 z-30">
-                <tr>
-                  {[
-                    { id: "id", label: "Código" },
-                    { id: "clave", label: "Clave" },
-                    { id: "cc", label: "CC" },
-                    { id: "justificacion", label: "Justificación" },
-                    { id: "descripcion", label: "Descripción del Concepto" },
-                    { id: "unidad", label: "Unidad" },
-                  ].map((col) => (
-                    <th
-                      key={col.id}
-                      className="px-3 py-3 border-r border-slate-700 relative group text-[10px] font-black leading-tight"
-                      style={{ width: catColWidths[col.id] }}
-                    >
-                      <div className="truncate w-full">{col.label}</div>
-                      <div
-                        onMouseDown={(e) => startResizing(col.id, e)}
-                        className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-teal-400 z-40 transition-colors"
-                      />
-                    </th>
-                  ))}
-                  <th
-                    className="px-3 py-3 text-center"
-                    style={{ width: catColWidths.action || 50 }}
-                  ></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                {catalogoConceptos.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="p-12 text-center text-slate-400 font-bold uppercase tracking-widest"
-                    >
-                      <div className="flex flex-col items-center justify-center gap-3">
-                        <AlertCircle size={32} className="opacity-30" />
-                        <span>
-                          El catálogo está vacío. Agrega conceptos base.
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                {catalogoConceptos.map((c, idx) => (
-                  <tr
-                    key={c.id}
-                    className={`transition-colors ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"} hover:bg-teal-50/30`}
+        <div className="flex-1 overflow-hidden bg-slate-50 p-4 md:p-6 flex flex-col min-h-0">
+          {activeGlobalPartidaId ? (
+            <div className="flex flex-col flex-1 animate-in fade-in duration-300 min-h-0">
+              <div className="flex items-center justify-between gap-3 mb-4 shrink-0">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setActiveGlobalPartidaId(null)}
+                    className="flex items-center gap-2 text-teal-600 hover:text-teal-800 font-bold text-xs uppercase tracking-widest transition-colors"
                   >
-                    <td className="p-0 border-r border-slate-200">
-                      <DebouncedCell
-                        value={c.id}
-                        onChange={(v) => updateCatalogoId(c.id, v)}
-                        className="w-full h-full p-3 bg-transparent text-left outline-none font-black text-teal-800 min-w-0 text-[13px]"
-                        placeholder="Ej. PRE-01"
-                      />
-                    </td>
-                    <td className="p-0 border-r border-slate-200">
-                      <DebouncedCell
-                        value={c.clave}
-                        onChange={(v) => updateCatalogoField(c.id, "clave", v)}
-                        className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600 text-[13px]"
-                      />
-                    </td>
-                    <td className="p-0 border-r border-slate-200">
-                      <DebouncedCell
-                        value={c.cc}
-                        onChange={(v) => updateCatalogoField(c.id, "cc", v)}
-                        className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600 text-[13px]"
-                      />
-                    </td>
-                    <td className="p-0 border-r border-slate-200">
-                      <DebouncedCell
-                        isTextArea
-                        rows={2}
-                        value={c.justificacion}
-                        onChange={(v) =>
-                          updateCatalogoField(c.id, "justificacion", v)
-                        }
-                        className="w-full h-full p-2 bg-transparent outline-none resize-none min-w-0 italic text-slate-500"
-                      />
-                    </td>
-                    <td className="p-0 border-r border-slate-200">
-                      <DebouncedCell
-                        isTextArea
-                        rows={4}
-                        value={c.descripcion}
-                        onChange={(v) =>
-                          updateCatalogoField(c.id, "descripcion", v)
-                        }
-                        className="w-full h-auto min-h-[60px] p-2 bg-transparent outline-none min-w-0 text-slate-700 font-bold uppercase transition-all focus:bg-white"
-                      />
-                    </td>
-                    <td className="p-0 border-r border-slate-200">
-                      <DebouncedCell
-                        value={c.unidad}
-                        onChange={(v) => updateCatalogoField(c.id, "unidad", v)}
-                        className="w-full h-full p-3 bg-transparent text-center outline-none font-black text-teal-700 uppercase min-w-0 text-[15px]"
-                      />
-                    </td>
-                    <td className="p-0 text-center">
+                    <ChevronLeft size={16} /> Volver a Partidas
+                  </button>
+                  <div className="h-4 w-px bg-slate-300"></div>
+                  <h3 className="font-black text-slate-700 uppercase tracking-widest text-sm">
+                    {catalogoPartidasGlobal.find(p => p.id === activeGlobalPartidaId)?.nombre || "NUEVA PARTIDA"}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-3">
+                  {selectedIds.length > 0 && (
+                    <>
                       <button
-                        onClick={() =>
-                          setCatalogoConceptos((prev) =>
-                            prev.filter((x) => x.id !== c.id),
-                          )
-                        }
-                        className="text-slate-300 hover:text-red-500 transition-colors p-2"
+                        onClick={() => {
+                          const existingIds = new Set(catalogoConceptos.map(x => x.id));
+                          const newItems = [];
+                          catalogoConceptos.forEach((c) => {
+                            if (selectedIds.includes(c.id)) {
+                              let newId = `${c.id}-COPIA-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+                              while (existingIds.has(newId)) {
+                                  newId = `${c.id}-COPIA-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+                              }
+                              existingIds.add(newId);
+                              newItems.push({
+                                ...c,
+                                id: newId,
+                              });
+                            }
+                          });
+                          setCatalogoConceptos((prev) => [...prev, ...newItems]);
+                          setSelectedIds([]);
+                        }}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-[10px] font-black shadow-md transition-all active:scale-95 uppercase tracking-wider hover:bg-indigo-700 flex items-center gap-2"
                       >
-                        <Trash2 size={16} />
+                        <Copy size={14} /> Duplicar ({selectedIds.length})
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <button
+                        onClick={() => {
+                          setCatalogoConceptos((prev) =>
+                            prev.filter((c) => !selectedIds.includes(c.id)),
+                          );
+                          setSelectedIds([]);
+                        }}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg text-[10px] font-black shadow-md transition-all active:scale-95 uppercase tracking-wider hover:bg-red-700 flex items-center gap-2"
+                      >
+                        <Trash2 size={14} /> Eliminar ({selectedIds.length})
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => {
+                      const newId = `CAT-${Date.now().toString(36).toUpperCase()}`;
+                      setCatalogoConceptos((prev) => [
+                        ...prev,
+                        {
+                          id: newId,
+                          partidaId: activeGlobalPartidaId,
+                          clave: "",
+                          cc: "",
+                          justificacion: "",
+                          descripcion: "",
+                          unidad: "m2",
+                        },
+                      ]);
+                    }}
+                    className="px-4 py-2 bg-teal-700 text-white rounded-lg text-[10px] font-black shadow-md transition-transform active:scale-95 uppercase tracking-wider hover:bg-teal-600 flex items-center gap-2"
+                  >
+                    <Plus size={14} /> Agregar Concepto
+                  </button>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-auto flex-1 min-h-0">
+                <table className="text-sm text-left border-collapse table-fixed w-full min-w-[900px]">
+                  <thead className="bg-slate-800 text-white uppercase tracking-wider select-none font-black sticky top-0 z-30">
+                    <tr>
+                      <th
+                        className="p-3 border-r border-slate-700 text-center"
+                        style={{ width: catColWidths.selection || 40 }}
+                      >
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                          checked={
+                            catalogoConceptos.filter(c => c.partidaId === activeGlobalPartidaId).length > 0 &&
+                            selectedIds.length === catalogoConceptos.filter(c => c.partidaId === activeGlobalPartidaId).length
+                          }
+                          onChange={(e) => {
+                            if (e.target.checked)
+                              setSelectedIds(catalogoConceptos.filter(c => c.partidaId === activeGlobalPartidaId).map((c) => c.id));
+                            else setSelectedIds([]);
+                          }}
+                        />
+                      </th>
+                      {[
+                        { id: "id", label: "Código" },
+                        { id: "clave", label: "Clave" },
+                        { id: "cc", label: "CC" },
+                        { id: "justificacion", label: "Justificación" },
+                        { id: "descripcion", label: "Descripción del Concepto" },
+                        { id: "unidad", label: "Unidad" },
+                      ].map((col) => (
+                        <th
+                          key={col.id}
+                          className="px-3 py-3 border-r border-slate-700 relative group text-[10px] font-black leading-tight"
+                          style={{ width: catColWidths[col.id] }}
+                        >
+                          <div className="truncate w-full">{col.label}</div>
+                          <div
+                            onMouseDown={(e) => startResizing(col.id, e)}
+                            className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-teal-400 z-40 transition-colors"
+                          />
+                        </th>
+                      ))}
+                      <th
+                        className="px-3 py-3 text-center"
+                        style={{ width: catColWidths.action || 50 }}
+                      ></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {(() => {
+                      const groupConcepts = catalogoConceptos.filter(c => c.partidaId === activeGlobalPartidaId);
+                      if (groupConcepts.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={8} className="p-12 text-center text-slate-400 font-bold uppercase tracking-widest">
+                              <div className="flex flex-col items-center justify-center gap-3">
+                                <AlertCircle size={32} className="opacity-30" />
+                                <span>No hay conceptos en esta partida.</span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return groupConcepts.map((c, idx) => (
+                        <tr
+                          key={c.id}
+                          className={`transition-colors ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"} hover:bg-teal-50/30 ${selectedIds.includes(c.id) ? "bg-teal-50/70" : ""}`}
+                        >
+                          <td className="p-0 border-r border-slate-200 text-center">
+                            <input
+                              type="checkbox"
+                              className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                              checked={selectedIds.includes(c.id)}
+                              onChange={(e) => {
+                                if (e.target.checked)
+                                  setSelectedIds((p) => [...p, c.id]);
+                                else
+                                  setSelectedIds((p) =>
+                                    p.filter((sid) => sid !== c.id),
+                                  );
+                              }}
+                            />
+                          </td>
+                          <td className="p-0 border-r border-slate-200">
+                            <DebouncedCell
+                              value={c.id}
+                              onChange={(v) => updateCatalogoId(c.id, v)}
+                              className="w-full h-full p-3 bg-transparent text-left outline-none font-black text-teal-800 min-w-0 text-[13px]"
+                              placeholder="Ej. PRE-01"
+                            />
+                          </td>
+                          <td className="p-0 border-r border-slate-200">
+                            <DebouncedCell
+                              value={c.clave}
+                              onChange={(v) => updateCatalogoField(c.id, "clave", v)}
+                              className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600 text-[13px]"
+                            />
+                          </td>
+                          <td className="p-0 border-r border-slate-200">
+                            <DebouncedCell
+                              value={c.cc}
+                              onChange={(v) => updateCatalogoField(c.id, "cc", v)}
+                              className="w-full h-full p-3 bg-transparent text-center outline-none min-w-0 font-bold text-slate-600 text-[13px]"
+                            />
+                          </td>
+                          <td className="p-0 border-r border-slate-200">
+                            <DebouncedCell
+                              isTextArea
+                              rows={2}
+                              value={c.justificacion}
+                              onChange={(v) =>
+                                updateCatalogoField(c.id, "justificacion", v)
+                              }
+                              className="w-full h-full p-2 bg-transparent outline-none resize-none min-w-0 italic text-slate-500"
+                            />
+                          </td>
+                          <td className="p-0 border-r border-slate-200">
+                            <DebouncedCell
+                              isTextArea
+                              rows={4}
+                              value={c.descripcion}
+                              onChange={(v) =>
+                                updateCatalogoField(c.id, "descripcion", v)
+                              }
+                              className="w-full h-auto min-h-[60px] p-2 bg-transparent outline-none min-w-0 text-slate-700 font-bold uppercase transition-all focus:bg-white"
+                            />
+                          </td>
+                          <td className="p-0 border-r border-slate-200">
+                            <DebouncedCell
+                              value={c.unidad}
+                              onChange={(v) => updateCatalogoField(c.id, "unidad", v)}
+                              className="w-full h-full p-3 bg-transparent text-center outline-none font-black text-teal-700 uppercase min-w-0 text-[15px]"
+                            />
+                          </td>
+                          <td className="p-0 text-center">
+                            <button
+                              onClick={() =>
+                                setCatalogoConceptos((prev) =>
+                                  prev.filter((x) => x.id !== c.id),
+                                )
+                              }
+                              className="text-slate-300 hover:text-red-500 transition-colors p-2"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-in fade-in duration-300 w-full">
+              {catalogoPartidasGlobal.map((p) => {
+                const conceptsCount = catalogoConceptos.filter(c => c.partidaId === p.id).length;
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => setActiveGlobalPartidaId(p.id)}
+                    className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm hover:shadow-xl hover:border-teal-300 transition-all group flex flex-col cursor-pointer relative overflow-hidden h-[160px]"
+                  >
+                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity transform group-hover:scale-110 group-hover:-rotate-12 duration-500">
+                      <Layers size={80} />
+                    </div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="bg-teal-50 w-10 h-10 rounded-xl flex items-center justify-center text-teal-600 group-hover:scale-110 transition-transform shadow-sm">
+                        <Layers size={20} />
+                      </div>
+                      <input
+                        type="text"
+                        value={p.nombre}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCatalogoPartidasGlobal(prev => prev.map(p2 => p2.id === p.id ? { ...p2, nombre: val } : p2));
+                        }}
+                        className="bg-transparent font-black text-slate-800 uppercase leading-tight outline-none w-full text-sm placeholder:text-slate-400 z-10"
+                        placeholder="NOMBRE DE LA PARTIDA"
+                      />
+                    </div>
+
+                    <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-2 z-10">
+                      {conceptsCount} Conceptos configurados
+                    </p>
+                    <div className="mt-auto flex justify-between items-center border-t border-slate-100 pt-3 z-10">
+                      <span className="text-teal-600 font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
+                        Abrir Matriz <ChevronRight size={14} />
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePartidaGlobal(p.id);
+                        }}
+                        className="text-slate-300 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              <div
+                onClick={handleCreatePartidaGlobal}
+                className="bg-slate-50/50 rounded-3xl p-5 border-2 border-dashed border-teal-300 hover:border-teal-400 hover:bg-teal-50 transition-all flex flex-col items-center justify-center cursor-pointer text-slate-400 hover:text-teal-600 h-[160px] group"
+              >
+                <div className="bg-white w-10 h-10 rounded-xl flex items-center justify-center mb-3 shadow-sm group-hover:scale-110 transition-transform">
+                  <FolderPlus size={20} />
+                </div>
+                <span className="font-black text-[11px] uppercase tracking-widest text-center">
+                  Nueva Partida
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+        {partidaToDelete && (
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-3xl shadow-xl w-full max-w-sm flex flex-col items-center">
+              <AlertCircle size={40} className="text-red-500 mb-4" />
+              <h4 className="font-black text-slate-800 text-lg uppercase mb-2 text-center">¿Eliminar Partida?</h4>
+              <p className="text-sm text-slate-500 text-center mb-6">Esta acción eliminará la organización de esta partida en el catálogo maestro.</p>
+              <div className="flex w-full gap-3">
+                <button onClick={() => setPartidaToDelete(null)} className="flex-1 py-3 bg-slate-100 uppercase tracking-widest text-xs font-bold text-slate-700 rounded-xl hover:bg-slate-200 transition-colors">Cancelar</button>
+                <button onClick={confirmDeletePartida} className="flex-1 py-3 bg-red-600 text-white uppercase tracking-widest text-xs font-black rounded-xl shadow-md hover:bg-red-700 transition-transform active:scale-95">Eliminar</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StructAdjustmentModal({ structAdjModal, onClose, onSave }) {
+  const [tipoLosa, setTipoLosa] = useState(structAdjModal.tipoLosa);
+  const [esquinaLosa, setEsquinaLosa] = useState(structAdjModal.esquinaLosa);
+  const [espesorLosa, setEspesorLosa] = useState(structAdjModal.espesorLosa);
+  const [espesorZapata, setEspesorZapata] = useState(structAdjModal.espesorZapata || "0");
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="bg-blue-800 text-white p-5 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <Layout size={20} className="text-blue-300" />
+            <div className="flex flex-col">
+              <h3 className="text-sm font-black uppercase tracking-widest leading-none">
+                Ajuste de Elemento
+              </h3>
+              <p className="text-[9px] font-bold text-blue-300 uppercase mt-1">
+                Descuento por Losa y Zapata
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-white/20 rounded-full transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest">
+              Contacto Superior (¿Losa arriba?)
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setTipoLosa("maciza")}
+                className={`py-3 px-4 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all border-2 ${tipoLosa === "maciza" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200"}`}
+              >
+                Maciza / Losa
+              </button>
+              <button
+                onClick={() => setTipoLosa("vigueta")}
+                className={`py-3 px-4 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all border-2 ${tipoLosa === "vigueta" ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md" : "border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200"}`}
+              >
+                Vigueta
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <div>
+              <span className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                ¿Es Esquina?
+              </span>
+              <span className="text-[9px] text-slate-400 font-bold uppercase">
+                Afecta 1 cara lateral (Cimbra)
+              </span>
+            </div>
+            <button
+              onClick={() => setEsquinaLosa(!esquinaLosa)}
+              className={`w-12 h-7 rounded-full transition-all relative ${esquinaLosa ? "bg-blue-600 shadow-inner" : "bg-slate-200"}`}
+            >
+              <div
+                className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all shadow-sm ${esquinaLosa ? "left-6" : "left-1"}`}
+              />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">
+                Espesor de Losa (m)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={espesorLosa}
+                  onChange={(e) => setEspesorLosa(e.target.value)}
+                  className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 font-black text-slate-700 outline-none focus:border-blue-500 focus:bg-white transition-all text-sm pl-10"
+                />
+                <Ruler
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"
+                  size={16}
+                />
+              </div>
+            </div>
+
+            {((structAdjModal.tipo || "").toLowerCase().trim() !== "trabe") && (
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 tracking-widest">
+                  Espesor de Zapata (m)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={espesorZapata}
+                    onChange={(e) => setEspesorZapata(e.target.value)}
+                    className="w-full p-3 bg-slate-50 rounded-xl border border-slate-100 font-black text-slate-700 outline-none focus:border-blue-500 focus:bg-white transition-all text-sm pl-10"
+                  />
+                  <Layers
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"
+                    size={16}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
-        <div className="p-4 md:p-6 bg-white border-t border-slate-100 flex gap-4 shrink-0">
+        <div className="p-4 bg-slate-50 flex gap-3">
           <button
-            onClick={() => {
-              const newId = `CAT-${Date.now().toString(36).toUpperCase()}`;
-              setCatalogoConceptos((prev) => [
-                ...prev,
-                {
-                  id: newId,
-                  clave: "",
-                  cc: "",
-                  justificacion: "",
-                  descripcion: "",
-                  unidad: "m2",
-                },
-              ]);
-            }}
-            className="px-6 py-3 bg-teal-700 text-white rounded-xl text-xs font-black shadow-md transition-transform active:scale-95 uppercase tracking-wider hover:bg-teal-600 flex items-center gap-2"
+            onClick={onClose}
+            className="flex-1 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600 transition-colors"
           >
-            <Plus size={16} /> Agregar Concepto
+            Cancelar
+          </button>
+          <button
+            onClick={() => onSave({ tipoLosa, esquinaLosa, espesorLosa, espesorZapata })}
+            className="flex-1 py-4 bg-blue-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-200 active:scale-95 transition-all hover:bg-blue-800"
+          >
+            Aplicar Ajuste
           </button>
         </div>
       </div>
