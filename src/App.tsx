@@ -140,7 +140,7 @@ const exportFormattedExcel = (tableHtml, filename) => {
     <head>
       <meta charset="utf-8">
       <style> 
-        table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt; margin-bottom: 20px; table-layout: auto; } 
+        table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt; margin-bottom: 20px; table-layout: fixed; } 
         th, td { border: 1px solid #cbd5e1; padding: 6px; vertical-align: middle; white-space: normal !important; word-wrap: break-word !important; } 
         th { font-weight: bold; text-align: center; }
         .wrap { white-space: normal !important; mso-height-source: auto; }
@@ -6408,54 +6408,58 @@ function ProjectWorkspace({
 
                   const renderExVal = (v) => {
                     const num = parseFloat(v);
+                    if (isNaN(num)) return "0.00";
                     return num.toFixed(2);
                   };
 
-                  let html = `<table style="border-collapse: collapse; font-family: Arial, sans-serif;">
+                  let html = `<table style="table-layout: fixed; border-collapse: collapse; font-family: Arial, sans-serif;">
                       <colgroup>
-                         <col width="30" />
-                         <col width="80" />
-                         <col width="160" />
-                         <col width="120" />
-                         <col width="60" />
-                         <col width="150" />
-                         <col width="60" />
-                         <col width="60" />
-                         <col width="60" />
-                         <col width="70" />
-                         <col width="60" />
-                         <col width="50" />
-                         <col width="50" />
-                         <col width="50" />
-                         <col width="60" />
-                         <col width="60" />
-                         <col width="70" />
-                         <col width="100" />
+                         <col width="30" style="width: 30px;" />
+                         <col width="100" style="width: 100px;" />
+                         <col width="160" style="width: 160px;" />
+                         <col width="140" style="width: 140px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="130" style="width: 130px;" />
                       </colgroup>
                       <thead>
                       <tr style="height: 20pt;">
                          <td style="border: none; background-color: #ffffff;"></td>
-                         <th colspan="17" style="background-color: #0b1a30; color: #ffffff; font-size: 11pt; font-weight: bold; text-align: center; vertical-align: middle; border: 1.5pt solid #000000; text-transform: uppercase;">REPORTE GLOBAL DE ACERO (DESGLOSE POR ELEMENTO) - NIVEL: ${titleLevelName}</th>
+                         <th colspan="17" style="background-color: #0b1a30; color: #ffffff; font-size: 11pt; font-family: Arial, sans-serif; font-weight: bold; text-align: center; vertical-align: middle; border: 1.5pt solid #000000; text-transform: uppercase;">REPORTE GLOBAL DE ACERO (DESGLOSE POR ELEMENTO) - NIVEL: ${titleLevelName}</th>
                       </tr>
-                      <tr style="background-color: #ffffff; color: #000000; font-size: 8.5pt; font-weight: bold; text-align: center; height: 18pt;">
+                      <tr style="height: 10pt;">
+                         <td colspan="18" style="border: none; background-color: #ffffff;"></td>
+                      </tr>
+                      <tr style="background-color: #ffffff; color: #000000; font-size: 8.5pt; font-family: Arial, sans-serif; font-weight: bold; text-align: center; height: 18pt;">
                          <td style="border: none; background-color: #ffffff;"></td>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; border-left: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">NIVEL</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">UBICACIÓN (EJE / CLAVE)</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">ELEMENTO</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">PZAS</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">TIPO REF.</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;"># VAR</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">TRAMO</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">SEP.</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">PZAS REF.</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">LONG.</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">GAN.</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">ANCL.</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">TRAS.</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">ML/PZA</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; color: #0054ff; vertical-align: middle; background-color: #ffffff;">TOT.(ML)</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; color: #0054ff; vertical-align: middle; background-color: #ffffff;">TOT.(KG)</th>
-                         <th style="border: 1pt solid #000000; border-top: 1.5pt solid #000000; border-right: 1.5pt solid #000000; color: #0054ff; vertical-align: middle; background-color: #ffffff;">TOTAL ELEM.(KG)</th>
+                         <th width="100" style="width: 100px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; border-left: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">NIVEL</th>
+                         <th width="160" style="width: 160px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">UBICACIÓN (EJE / CLAVE)</th>
+                         <th width="140" style="width: 140px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">ELEMENTO</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">PZAS</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">TIPO REF.</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;"># VAR</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">TRAMO</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">SEP.</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">PZAS REF.</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">LONG.</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">GAN.</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">ANCL.</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">TRAS.</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; vertical-align: middle; background-color: #ffffff;">ML/PZA</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; color: #0054ff; vertical-align: middle; background-color: #ffffff;">TOT.(ML)</th>
+                         <th width="115" style="width: 115px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; color: #0054ff; vertical-align: middle; background-color: #ffffff;">TOT.(KG)</th>
+                         <th width="130" style="width: 130px; border: 1pt solid #000000; border-top: 1.5pt solid #000000; border-right: 1.5pt solid #000000; color: #0054ff; vertical-align: middle; background-color: #ffffff;">TOTAL ELEM.(KG)</th>
                       </tr>
                    </thead><tbody>`;
 
@@ -6469,11 +6473,11 @@ function ProjectWorkspace({
                       html += `<tr style="background-color: #ffffff; text-align: center; height: 18pt;">
                             <td style="border: none; background-color: #ffffff;"></td>
                             <td style="border: 1pt solid #000000; border-left: 1.5pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: left; padding-left: 5px;">${e._nivelInfo}</td>
-                            <td style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e.eje} ${e.clave}</td>
-                            <td style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; color: #595959; vertical-align: middle; text-align: center;">${e.tipo}</td>
-                            <td style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #0054ff; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${ePiezas.toFixed(2)}</td>
+                            <td style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: normal; color: #000000; vertical-align: middle; text-align: center;">${e.eje} ${e.clave}</td>
+                            <td style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 11pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e.tipo}</td>
+                            <td style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 10pt; font-weight: normal; color: #0054ff; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${ePiezas.toFixed(2)}</td>
                             <td colspan="12" style="border: 1pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: normal; color: #000000; vertical-align: middle; text-align: center;">Sin acero</td>
-                            <td style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #0054ff; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${elemTotalKg.toFixed(2)}</td>
+                            <td style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; border-bottom: 1.5pt solid #000000; font-size: 11pt; font-weight: bold; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${elemTotalKg.toFixed(2)}</td>
                          </tr>`;
                     } else {
                       e.aceros.forEach((a, idx) => {
@@ -6493,28 +6497,28 @@ function ProjectWorkspace({
 
                         if (idx === 0) {
                           html += `
-                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} border-left: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e._nivelInfo}</td>
-                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} font-size: 8.5pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e.eje} ${e.clave}</td>
-                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} font-size: 8.5pt; color: #595959; vertical-align: middle; text-align: center;">${e.tipo}</td>
-                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} font-size: 8.5pt; font-weight: bold; color: #0054ff; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${ePiezas.toFixed(2)}</td>`;
+                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} border-left: 1.5pt solid #000000; font-size: 8.5pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: left; padding-left: 5px;">${e._nivelInfo}</td>
+                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} font-size: 8.5pt; font-weight: normal; color: #000000; vertical-align: middle; text-align: center;">${e.eje} ${e.clave}</td>
+                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} font-size: 11pt; font-weight: bold; color: #000000; vertical-align: middle; text-align: center;">${e.tipo}</td>
+                               <td rowspan="${tipoRowSpan}" style="${rowspanStyle} font-size: 10pt; font-weight: normal; color: #0054ff; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${ePiezas.toFixed(2)}</td>`;
                         }
 
                         html += `
-                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; text-align: center; vertical-align: middle;">${a.tipo}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; text-align: center; vertical-align: middle;">#${parseFloat(a.numVarilla || 0).toFixed(2)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.anchoCalc)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.separacion)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${parseFloat(a.piezas || 1).toFixed(2)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.longitud)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.ganchos)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.anclaje)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.traslapes)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${calc.mlPorPieza.toFixed(2)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${(calc.ml * ePiezas).toFixed(2)}</td>
-                               <td style="${rowStyle} font-size: 8.5pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${kgTotal.toFixed(2)}</td>`;
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: normal; text-align: center; vertical-align: middle;">${a.tipo}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: normal; text-align: center; vertical-align: middle;">#${parseFloat(a.numVarilla || 0).toFixed(2)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.anchoCalc)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.separacion)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${parseFloat(a.piezas || 1).toFixed(2)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.longitud)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.ganchos)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.anclaje)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${renderExVal(a.traslapes)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${calc.mlPorPieza.toFixed(2)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${(calc.ml * ePiezas).toFixed(2)}</td>
+                               <td style="${rowStyle} font-size: 8.5pt; color: #000000; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${kgTotal.toFixed(2)}</td>`;
 
                         if (idx === 0) {
-                          html += `<td rowspan="${tipoRowSpan}" style="${rowspanStyle} border-right: 1.5pt solid #000000; font-size: 9pt; color: #0054ff; font-weight: normal; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${elemTotalKg.toFixed(2)}</td>`;
+                          html += `<td rowspan="${tipoRowSpan}" style="${rowspanStyle} border-right: 1.5pt solid #000000; font-size: 11pt; color: #000000; font-weight: bold; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${elemTotalKg.toFixed(2)}</td>`;
                         }
                         html += `</tr>`;
                       });
@@ -6539,47 +6543,47 @@ function ProjectWorkspace({
                     1,
                   );
 
-                  html += `<table border="0" style="border-collapse: collapse; text-align: center; font-family: Arial, sans-serif;">
+                  html += `<table border="0" style="table-layout: fixed; border-collapse: collapse; text-align: center; font-family: Arial, sans-serif;">
                       <colgroup>
-                         <col width="30" />
-                         <col width="80" />
-                         <col width="160" />
-                         <col width="120" />
-                         <col width="60" />
-                         <col width="150" />
-                         <col width="60" />
-                         <col width="60" />
-                         <col width="60" />
-                         <col width="70" />
-                         <col width="60" />
-                         <col width="50" />
-                         <col width="50" />
-                         <col width="50" />
-                         <col width="60" />
-                         <col width="60" />
-                         <col width="70" />
-                         <col width="100" />
+                         <col width="30" style="width: 30px;" />
+                         <col width="100" style="width: 100px;" />
+                         <col width="160" style="width: 160px;" />
+                         <col width="140" style="width: 140px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="115" style="width: 115px;" />
+                         <col width="130" style="width: 130px;" />
                       </colgroup>
                      <thead>
                         <tr style="height: 18pt;">
                            <td style="width: 30px; border: none;"></td>
-                           <th colspan="3" style="background-color: #008060; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">CIMENTACIÓN</th>
-                           <th colspan="6" style="background-color: #0054ff; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">ESTRUCTURA</th>
-                           <th colspan="5" style="background-color: #6600cc; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">MUROS</th>
-                           <th colspan="3" style="background-color: #000000; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">TOTAL</th>
+                           <th colspan="2" style="background-color: #008060; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">CIMENTACIÓN</th>
+                           <th colspan="7" style="background-color: #0054ff; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">ESTRUCTURA</th>
+                           <th colspan="7" style="background-color: #6600cc; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">MUROS</th>
+                           <th colspan="1" style="background-color: #000000; color: #ffffff; font-size: 11pt; border: 1.5pt solid #000000;">TOTAL</th>
                         </tr>
                         <tr style="height: 16pt;">
                            <td style="border: none;"></td>
                            <th colspan="1" style="border: 1pt solid #000000; border-left: 1.5pt solid #000000; background-color: #ccffeb; color: #008060; padding: 2px;">CALIBRE</th>
-                           <th colspan="2" style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; background-color: #ccffeb; color: #008060; padding: 2px;">PESO (KG)</th>
+                           <th colspan="1" style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; background-color: #ccffeb; color: #008060; padding: 2px;">PESO (KG)</th>
                            
-                           <th colspan="3" style="border: 1pt solid #000000; background-color: #e6f0ff; color: #0054ff; padding: 2px;">CALIBRE</th>
+                           <th colspan="4" style="border: 1pt solid #000000; background-color: #e6f0ff; color: #0054ff; padding: 2px;">CALIBRE</th>
                            <th colspan="3" style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; background-color: #e6f0ff; color: #0054ff; padding: 2px;">PESO (KG)</th>
                            
                            <th colspan="4" style="border: 1pt solid #000000; background-color: #f2e6ff; color: #6600cc; padding: 2px;">CALIBRE</th>
-                           <th colspan="1" style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; background-color: #f2e6ff; color: #6600cc; padding: 2px;">PESO<br/>(KG)</th>
+                           <th colspan="3" style="border: 1pt solid #000000; border-right: 1.5pt solid #000000; background-color: #f2e6ff; color: #6600cc; padding: 2px;">PESO<br/>(KG)</th>
                            
-                           <td colspan="3" rowspan="${maxRows + 1}" style="border: 1.5pt solid #000000; background-color: #ffffff; color: #0054ff; font-weight: bold; font-size: 14pt; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${totalGlobalAcero.toFixed(2)}</td>
+                           <td colspan="1" rowspan="${maxRows + 1}" style="border: 1.5pt solid #000000; background-color: #ffffff; color: #0054ff; font-weight: bold; font-size: 14pt; vertical-align: middle; text-align: center; mso-number-format:'0\\.00';">${totalGlobalAcero.toFixed(2)}</td>
                         </tr>
                      </thead>
                      <tbody>`;
@@ -6599,35 +6603,35 @@ function ProjectWorkspace({
 
                     if (cimArr.length === 0 && i === 0) {
                       html += `<td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-left: 1.5pt solid #000000; color: #a6a6a6; text-align: center; vertical-align: middle;">Sin datos</td>
-                                 <td colspan="2" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                                 <td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
                     } else if (cItem) {
                       html += `<td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-left: 1.5pt solid #000000; font-weight: bold; color: #0054ff; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">#${parseFloat(cItem[0]).toFixed(2)}</td>
-                                 <td colspan="2" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000; font-weight: bold; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${cItem[1].toFixed(2)}</td>`;
+                                 <td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000; font-weight: bold; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${cItem[1].toFixed(2)}</td>`;
                     } else {
                       html += `<td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-left: 1.5pt solid #000000;"></td>
-                                 <td colspan="2" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                                 <td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
                     }
 
                     if (estArr.length === 0 && i === 0) {
-                      html += `<td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; color: #a6a6a6; text-align: center; vertical-align: middle;">Sin datos</td>
+                      html += `<td colspan="4" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; color: #a6a6a6; text-align: center; vertical-align: middle;">Sin datos</td>
                                  <td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
                     } else if (eItem) {
-                      html += `<td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; font-weight: bold; color: #0054ff; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">#${parseFloat(eItem[0]).toFixed(2)}</td>
+                      html += `<td colspan="4" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; font-weight: bold; color: #0054ff; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">#${parseFloat(eItem[0]).toFixed(2)}</td>
                                  <td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000; font-weight: bold; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${eItem[1].toFixed(2)}</td>`;
                     } else {
-                      html += `<td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder};"></td>
+                      html += `<td colspan="4" style="border: 1pt solid #000000; border-bottom: ${btmBorder};"></td>
                                  <td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
                     }
 
                     if (murArr.length === 0 && i === 0) {
                       html += `<td colspan="4" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; color: #a6a6a6; text-align: center; vertical-align: middle;">Sin datos</td>
-                                 <td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                                 <td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
                     } else if (mItem) {
                       html += `<td colspan="4" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; font-weight: bold; color: #0054ff; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">#${parseFloat(mItem[0]).toFixed(2)}</td>
-                                 <td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000; font-weight: bold; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${mItem[1].toFixed(2)}</td>`;
+                                 <td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000; font-weight: bold; color: #000000; text-align: center; vertical-align: middle; mso-number-format:'0\\.00';">${mItem[1].toFixed(2)}</td>`;
                     } else {
                       html += `<td colspan="4" style="border: 1pt solid #000000; border-bottom: ${btmBorder};"></td>
-                                 <td colspan="1" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
+                                 <td colspan="3" style="border: 1pt solid #000000; border-bottom: ${btmBorder}; border-right: 1.5pt solid #000000;"></td>`;
                     }
                     html += `</tr>`;
                   }
