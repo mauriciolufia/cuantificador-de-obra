@@ -1548,7 +1548,7 @@ function ProjectWorkspace({
           p.id === activePartidaId
             ? {
                 ...p,
-                conceptos: typeof upd === "function" ? upd(p.conceptos) : upd,
+                conceptos: typeof upd === "function" ? upd(p.conceptos || []) : upd,
               }
             : p,
         ),
@@ -1786,7 +1786,7 @@ function ProjectWorkspace({
       if (oldId === newId || !newId.trim()) return;
       updateActiveConceptos((prev) => {
         if (prev.some((c) => c.id === newId)) return prev;
-        const matched = catalogoConceptos.find((cat) => cat.id === newId);
+        const matched = catalogoConceptos.find((cat) => (cat.codigo || cat.id) === newId);
         return prev.map((c) =>
           c.id === oldId
             ? {
@@ -1815,6 +1815,55 @@ function ProjectWorkspace({
       setSelectedIds((prev) => prev.map((id) => (id === oldId ? newId : id)));
     },
     [updateActiveConceptos, updateActiveGeneradores, catalogoConceptos],
+  );
+
+  const handlePasteProjectConceptos = useCallback(
+    (e) => {
+      if (editingModal) return; // Don't paste if we are editing a generador or details
+      const clipboardData = e.clipboardData;
+      if (!clipboardData) return;
+      
+      const text = clipboardData.getData("text/plain");
+      if (!text) return;
+      
+      const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "");
+      if (lines.length > 0 && text.includes("\t")) {
+        e.preventDefault();
+        const newRows = lines.map((line) => {
+          const cols = line.split("\t");
+          if (cols.length >= 6) {
+             return {
+               id: cols[0]?.trim() || `C-${Date.now().toString(36)}-${Math.floor(Math.random()*1000)}`,
+               clave: cols[1]?.trim() || "",
+               cc: cols[2]?.trim() || "",
+               justificacion: cols[3]?.trim() || "",
+               descripcion: cols[4]?.trim() || "",
+               unidad: cols[5]?.trim() || "m2",
+             };
+          } else {
+             return {
+               id: cols[0]?.trim() || `C-${Date.now().toString(36)}-${Math.floor(Math.random()*1000)}`,
+               clave: "",
+               cc: "",
+               justificacion: "",
+               descripcion: cols[1]?.trim() || "",
+               unidad: cols[2]?.trim() || "m2",
+             };
+          }
+        });
+
+        updateActiveConceptos((prev) => {
+          const newState = [...prev];
+          newRows.forEach((r) => {
+            if (!newState.some((x) => x.id === r.id)) {
+              newState.push(r);
+            }
+          });
+          return newState;
+        });
+      }
+    },
+    [updateActiveConceptos, editingModal]
   );
 
   const updateRowGenerador = useCallback(
@@ -2042,6 +2091,11 @@ function ProjectWorkspace({
         ? prev.filter((id) => id !== rowId)
         : [...prev, rowId],
     );
+  const toggleSelectConcept = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
+  };
   const toggleAllStructureRows = () => {
     if (
       selectedStructureRows.length === estructuras.length &&
@@ -3070,13 +3124,28 @@ function ProjectWorkspace({
     [setCatalogoConceptos],
   );
   const updateCatalogoId = useCallback(
-    (oldId, newId) => {
-      if (oldId === newId || !newId.trim()) return;
-      setCatalogoConceptos((prev) =>
-        prev.some((c) => c.id === newId)
-          ? prev
-          : prev.map((c) => (c.id === oldId ? { ...c, id: newId } : c)),
-      );
+    (oldId, newCodigo) => {
+      if (!newCodigo.trim()) return;
+      setCatalogoConceptos((prev) => {
+        const matched = prev.find((cat) => (cat.codigo || cat.id) === newCodigo && cat.id !== oldId);
+        return prev.map((c) =>
+          c.id === oldId
+            ? {
+                ...c,
+                codigo: newCodigo,
+                ...(matched
+                  ? {
+                      clave: matched.clave || "",
+                      cc: matched.cc || "",
+                      justificacion: matched.justificacion || "",
+                      descripcion: matched.descripcion || "",
+                      unidad: matched.unidad || "",
+                    }
+                  : {}),
+              }
+            : c
+        );
+      });
     },
     [setCatalogoConceptos],
   );
@@ -5444,6 +5513,9 @@ function ProjectWorkspace({
   const renderConceptSelectorModal = () => {
     if (!conceptSelectorFor) return null;
     const filtered = catalogoConceptos.filter((c) =>
+      c.partidaId !== null &&
+      c.descripcion && 
+      c.descripcion.trim() !== "" &&
       (c.id + " " + (c.descripcion || ""))
         .toLowerCase()
         .includes(conceptSearchTerm.toLowerCase()),
@@ -12265,7 +12337,7 @@ function ProjectWorkspace({
             </div>
           </div>
         ) : activePartidaId ? (
-          <div className="overflow-x-auto bg-white rounded-lg shadow border border-gray-200 flex-1">
+          <div onPaste={handlePasteProjectConceptos} className="overflow-x-auto bg-white rounded-lg shadow border border-gray-200 flex-1">
             <table className="text-sm text-left border-collapse table-fixed w-full">
               <thead className="bg-slate-800 text-white uppercase tracking-wider select-none sticky top-0 z-30 font-black">
                 <tr>
@@ -12468,6 +12540,21 @@ function ProjectWorkspace({
                 className="px-5 py-2 bg-slate-700 text-white rounded-xl text-[10px] md:text-xs font-black shadow-md transition-transform active:scale-95 uppercase tracking-wider"
               >
                 + Agregar Concepto
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const clipText = await navigator.clipboard.readText();
+                    if (clipText) {
+                       handlePasteProjectConceptos({ clipboardData: { getData: () => clipText }, preventDefault: () => {} });
+                    }
+                  } catch (e) {
+                    alert("Por favor, selecciona la tabla y presiona Ctrl+V para pegar (permisos del portapapeles denegados).");
+                  }
+                }}
+                className="px-5 py-2 bg-emerald-600 text-white rounded-xl text-[10px] md:text-xs font-black shadow-md transition-transform active:scale-95 uppercase tracking-wider flex items-center gap-2 hover:bg-emerald-700"
+              >
+                <Clipboard size={14} /> Pegar desde Portapapeles
               </button>
               <button
                 onClick={() => {
@@ -13044,16 +13131,37 @@ function GlobalCatalogoModal({
   );
 
   const updateCatalogoId = useCallback(
-    (oldId, newId) => {
-      if (oldId === newId || !newId.trim()) return;
-      setCatalogoConceptos((prev) =>
-        prev.some((c) => c.id === newId)
-          ? prev
-          : prev.map((c) => (c.id === oldId ? { ...c, id: newId } : c)),
-      );
+    (oldId, newCodigo) => {
+      if (!newCodigo.trim()) return;
+      setCatalogoConceptos((prev) => {
+        const matched = prev.find((cat) => (cat.codigo || cat.id) === newCodigo && cat.id !== oldId);
+        return prev.map((c) =>
+          c.id === oldId
+            ? {
+                ...c,
+                codigo: newCodigo,
+                ...(matched
+                  ? {
+                      clave: matched.clave || "",
+                      cc: matched.cc || "",
+                      justificacion: matched.justificacion || "",
+                      descripcion: matched.descripcion || "",
+                      unidad: matched.unidad || "",
+                    }
+                  : {}),
+              }
+            : c
+        );
+      });
     },
     [setCatalogoConceptos],
   );
+
+  const toggleSelectConcept = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
+    );
+  };
 
   const handleCreatePartidaGlobal = () => {
     const newId = `CAT-PARTIDA-${Date.now().toString(36).toUpperCase()}`;
@@ -13089,23 +13197,25 @@ function GlobalCatalogoModal({
       if (!text) return;
       
       const lines = text.split(/\r?\n/).filter(line => line.trim() !== "");
-      if (lines.length > 1 || text.includes("\t")) {
+      if (lines.length > 0 && text.includes("\t")) {
         e.preventDefault();
         const newRows = lines.map(line => {
           const cols = line.split("\t");
           if (cols.length >= 6) {
             return {
-              id: cols[0]?.trim() || `NEW-${Date.now()}-${Math.floor(Math.random()*10000)}`,
+              id: `NEW-${Date.now()}-${Math.floor(Math.random()*100000)}`,
+              codigo: cols[0]?.trim() || "",
               partidaId: activeGlobalPartidaId,
-              clave: "",
-              cc: "",
-              justificacion: "",
+              clave: cols[1]?.trim() || "",
+              cc: cols[2]?.trim() || "",
+              justificacion: cols[3]?.trim() || "",
               descripcion: cols[4]?.trim() || "",
               unidad: cols[5]?.trim() || "",
             };
           } else {
             return {
-              id: cols[0]?.trim() || `NEW-${Date.now()}-${Math.floor(Math.random()*10000)}`,
+              id: `NEW-${Date.now()}-${Math.floor(Math.random()*100000)}`,
+              codigo: cols[0]?.trim() || "",
               partidaId: activeGlobalPartidaId,
               clave: "",
               cc: "",
@@ -13117,16 +13227,11 @@ function GlobalCatalogoModal({
         });
         
         setCatalogoConceptos(prev => {
-          const existingIds = new Set(prev.map(p => p.id));
-          const toAdd = newRows.map(r => {
-             let newId = r.id;
-             if (existingIds.has(newId)) {
-                 newId = `${newId}-${Date.now()}-${Math.floor(Math.random()*1000)}`;
-             }
-             existingIds.add(newId);
-             return { ...r, id: newId };
+          const newState = [...prev];
+          newRows.forEach((r) => {
+              newState.push(r);
           });
-          return [...prev, ...toAdd];
+          return newState;
         });
       }
     },
@@ -13179,6 +13284,28 @@ function GlobalCatalogoModal({
                 <div className="flex items-center gap-3">
                   {selectedIds.length > 0 && (
                     <>
+                      <button
+                        onClick={async () => {
+                          const itemsToCopy = catalogoConceptos.filter(c => selectedIds.includes(c.id));
+                          const tsvStr = itemsToCopy.map(c => 
+                            `${c.codigo || c.id}\t${c.clave || ""}\t${c.cc || ""}\t${(c.justificacion || "").replace(/\n/g, " ")}\t${(c.descripcion || "").replace(/\n/g, " ")}\t${c.unidad || ""}`
+                          ).join("\n");
+                          try {
+                            await navigator.clipboard.writeText(tsvStr);
+                            // Visual feedback
+                            const btn = document.getElementById("btn-copy-cat");
+                            if (btn) {
+                              const originalText = btn.innerHTML;
+                              btn.innerHTML = `<span class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copiados!</span>`;
+                              setTimeout(() => btn.innerHTML = originalText, 2000);
+                            }
+                          } catch (e) {}
+                        }}
+                        id="btn-copy-cat"
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-[10px] font-black shadow-md transition-all active:scale-95 uppercase tracking-wider hover:bg-emerald-700 flex items-center gap-2"
+                      >
+                        <Copy size={14} /> Copiar ({selectedIds.length})
+                      </button>
                       <button
                         onClick={() => {
                           const existingIds = new Set(catalogoConceptos.map(x => x.id));
@@ -13324,7 +13451,7 @@ function GlobalCatalogoModal({
                           </td>
                           <td className="p-0 border-r border-slate-200">
                             <DebouncedCell
-                              value={c.id}
+                              value={c.codigo || c.id}
                               onChange={(v) => updateCatalogoId(c.id, v)}
                               className="w-full h-full p-3 bg-transparent text-left outline-none font-black text-teal-800 min-w-0 text-[13px]"
                               placeholder="Ej. PRE-01"
