@@ -1,0 +1,16 @@
+1484:  const generadores = activePartida ? activePartida.generadores : {};
+1565:                generadores:
+1566:                  typeof upd === "function" ? upd(p.generadores) : upd,
+1671:        generadores: {},
+1769:    generadores[idC]?.[idN]?.rows?.reduce(
+2005:      generadores[editingModal.concepto.id]?.[editingModal.nivel.id]?.rows ||
+2083:      generadores[editingModal.concepto.id]?.[editingModal.nivel.id]?.rows ||
+5693:    const currentLevel = generadores[concepto.id]?.[nivel.id] || {
+5775:                  value={generadores[concepto.id]?.[nivel.id]?.comentario || ""}
+6046:        (generadores[c.id]?.[n.id]?.rows &&
+6047:          generadores[c.id][n.id].rows.length > 0),
+6077:                No hay conceptos con generadores en este nivel
+6081:              const dataNivel = generadores[c.id]?.[n.id] || { rows: [] };
+6264:                  const rows = generadores[c.id]?.[n.id]?.rows || [];
+10248:                    Desglose por grupos para generadores
+13126:              generadores y datos asociados a esta obra. No se puede deshacer.

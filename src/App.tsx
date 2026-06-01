@@ -34,6 +34,7 @@ import {
   Layout,
   Ruler,
 } from "lucide-react";
+import { exportRealExcelElegante } from "./excelExportHelper";
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -229,27 +230,40 @@ const usePersistentState = (key, initialValue, user) => {
 
   useEffect(() => {
     if (!isLoaded) return;
-    localStorage.setItem(key, JSON.stringify(state));
-    if (!user || !db) return;
-    setIsSaving(true);
-    const timeout = setTimeout(() => {
-      const docRef = doc(
-        db,
-        "artifacts",
-        appId,
-        "users",
-        user.uid,
-        "global",
-        "settings",
-      );
-      setDoc(docRef, { [key]: state }, { merge: true })
-        .then(() => setIsSaving(false))
-        .catch((e) => {
-          console.error(e);
-          setIsSaving(false);
-        });
-    }, 1000);
-    return () => clearTimeout(timeout);
+
+    const localTimeout = setTimeout(() => {
+      try {
+        localStorage.setItem(key, JSON.stringify(state));
+      } catch (e) {
+        console.warn("Storage warning:", e);
+      }
+    }, 500);
+
+    let dbTimeout;
+    if (user && db) {
+      setIsSaving(true);
+      dbTimeout = setTimeout(() => {
+        const docRef = doc(
+          db,
+          "artifacts",
+          appId,
+          "users",
+          user.uid,
+          "global",
+          "settings",
+        );
+        setDoc(docRef, { [key]: state }, { merge: true })
+          .then(() => setIsSaving(false))
+          .catch((e) => {
+            console.error(e);
+            setIsSaving(false);
+          });
+      }, 1500);
+    }
+    return () => {
+      clearTimeout(localTimeout);
+      if (dbTimeout) clearTimeout(dbTimeout);
+    };
   }, [state, isLoaded, key, user]);
 
   useEffect(() => {
@@ -332,28 +346,41 @@ const useProjectState = (projectId, baseKey, initialValue, user) => {
 
   useEffect(() => {
     if (!isLoaded) return;
-    localStorage.setItem(localKey, JSON.stringify(state));
-    if (!user || !db) return;
-    setIsSaving(true);
-    const timeout = setTimeout(() => {
-      const docRef = doc(
-        db,
-        "artifacts",
-        appId,
-        "users",
-        user.uid,
-        "projects",
-        projectId,
-      );
-      setDoc(docRef, { [baseKey]: state }, { merge: true })
-        .then(() => setIsSaving(false))
-        .catch((e) => {
-          console.error(e);
-          setIsSaving(false);
-        });
-    }, 1000);
-    return () => clearTimeout(timeout);
-  }, [state, isLoaded, projectId, baseKey, user]);
+
+    const localTimeout = setTimeout(() => {
+      try {
+        localStorage.setItem(localKey, JSON.stringify(state));
+      } catch (e) {
+        console.warn("Storage warning:", e);
+      }
+    }, 500);
+
+    let dbTimeout;
+    if (user && db) {
+      setIsSaving(true);
+      dbTimeout = setTimeout(() => {
+        const docRef = doc(
+          db,
+          "artifacts",
+          appId,
+          "users",
+          user.uid,
+          "projects",
+          projectId,
+        );
+        setDoc(docRef, { [baseKey]: state }, { merge: true })
+          .then(() => setIsSaving(false))
+          .catch((e) => {
+            console.error(e);
+            setIsSaving(false);
+          });
+      }, 1500);
+    }
+    return () => {
+      clearTimeout(localTimeout);
+      if (dbTimeout) clearTimeout(dbTimeout);
+    };
+  }, [state, isLoaded, projectId, baseKey, user, localKey]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -1919,85 +1946,130 @@ function ProjectWorkspace({
     const items = e.clipboardData.items;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
         const reader = new FileReader();
         reader.onload = (event) => {
           if (!editingModal) return;
-          updateActiveGeneradores((prev) => {
-            const currentConcept = prev[editingModal.concepto.id] || {},
-              currentLevel = currentConcept[editingModal.nivel.id] || {
-                rows: [],
-                image: null,
-              };
-            return {
-              ...prev,
-              [editingModal.concepto.id]: {
-                ...currentConcept,
-                [editingModal.nivel.id]: {
-                  ...currentLevel,
-                  image: event.target.result,
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            let width = img.width;
+            let height = img.height;
+            const maxDimension = 600;
+            if (width > height) {
+              if (width > maxDimension) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              }
+            } else {
+              if (height > maxDimension) {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Compress image substantially
+            const compressedBase64 = canvas.toDataURL("image/jpeg", 0.4);
+
+            updateActiveGeneradores((prev) => {
+              const currentConcept = prev[editingModal.concepto.id] || {},
+                currentLevel = currentConcept[editingModal.nivel.id] || {
+                  rows: [],
+                  images: [],
+                };
+              
+              let currentImages = currentLevel.images || [];
+              if (currentLevel.image && currentImages.length === 0) {
+                 currentImages = [currentLevel.image];
+              }
+
+              let newImages = [...currentImages];
+              if (newImages.length < 3) {
+                  newImages.push(compressedBase64);
+              }
+
+              return {
+                ...prev,
+                [editingModal.concepto.id]: {
+                  ...currentConcept,
+                  [editingModal.nivel.id]: {
+                    ...currentLevel,
+                    images: newImages,
+                    image: null,
+                  },
                 },
-              },
-            };
-          });
+              };
+            });
+          };
+          img.src = event.target.result;
         };
-        reader.readAsDataURL(items[i].getAsFile());
+        reader.readAsDataURL(file);
       }
     }
   };
 
-  const copyRowsToExcelClipboard = useCallback((rows) => {
-    const tsvString = rows
-      .map((r) => {
-        const rawL = parseFloat(r.largo);
-        const rawA = parseFloat(r.ancho);
-        const rawH = parseFloat(r.alto);
-        const rawK = parseFloat(r.kg_ml);
-        const rawP = parseFloat(r.piezas);
-        const L = isNaN(rawL) || rawL === 0 ? 0 : Math.abs(rawL);
-        const A = isNaN(rawA) || rawA === 0 ? 0 : Math.abs(rawA);
-        const H = isNaN(rawH) || rawH === 0 ? 0 : Math.abs(rawH);
-        const K = isNaN(rawK) || rawK === 0 ? 0 : Math.abs(rawK);
-        const pzas = isNaN(rawP) || rawP === 0 ? 1 : rawP;
+    const copyRowsToExcelClipboard = useCallback((rows) => {
+      const tsvString = rows
+        .map((r) => {
+          const rawL = parseFloat(r.largo);
+          const rawA = parseFloat(r.ancho);
+          const rawH = parseFloat(r.alto);
+          const rawK = parseFloat(r.kg_ml);
+          const rawP = parseFloat(r.piezas);
+          const L = isNaN(rawL) || rawL === 0 ? 0 : Math.abs(rawL);
+          const A = isNaN(rawA) || rawA === 0 ? 0 : Math.abs(rawA);
+          const H = isNaN(rawH) || rawH === 0 ? 0 : Math.abs(rawH);
+          const K = isNaN(rawK) || rawK === 0 ? 0 : Math.abs(rawK);
+          const pzas = isNaN(rawP) || rawP === 0 ? 1 : rawP;
 
-        const volPza =
-          (L > 0 ? L : 1) * (A > 0 ? A : 1) * (H > 0 ? H : 1) * (K > 0 ? K : 1);
-        const isActuallyZero = L === 0 && A === 0 && H === 0 && K === 0;
-        let finalVolPza = isActuallyZero ? 0 : volPza;
-        if (r.isPasos) finalVolPza = Math.floor(L / 4);
-        else if (typeof r.overrideVolPza === "number")
-          finalVolPza = r.overrideVolPza;
-        const volTotal =
-          typeof r.overrideTotal === "number"
-            ? r.overrideTotal
-            : finalVolPza * pzas;
+          const volPza =
+            (L > 0 ? L : 1) * (A > 0 ? A : 1) * (H > 0 ? H : 1) * (K > 0 ? K : 1);
+          const isActuallyZero = L === 0 && A === 0 && H === 0 && K === 0;
+          let finalVolPza = isActuallyZero ? 0 : volPza;
+          if (r.isPasos) finalVolPza = Math.floor(L / 4);
+          else if (typeof r.overrideVolPza === "number")
+            finalVolPza = r.overrideVolPza;
+          const volTotal =
+            typeof r.overrideTotal === "number"
+              ? r.overrideTotal
+              : finalVolPza * pzas;
 
-        const formatDim = (val) => {
-          if (isNaN(parseFloat(val)) || parseFloat(val) === 0) return "";
-          return parseFloat(val).toFixed(2);
-        };
-        const formatKgMl = (val) => {
-          if (isNaN(parseFloat(val)) || parseFloat(val) === 0) return "";
-          return parseFloat(val).toFixed(3);
-        };
-        const formatPzas = (val) => {
-          if (isNaN(parseFloat(val)) || parseFloat(val) === 0) return "1.00";
-          return parseFloat(val).toFixed(2);
-        };
-        const claveCompleta = [r.eje, r.claveLoc].filter(Boolean).join(" - ");
-        return `${claveCompleta}\t${formatDim(r.largo)}\t${formatDim(r.ancho)}\t${formatKgMl(r.kg_ml)}\t${formatDim(r.alto)}\t${finalVolPza.toFixed(2)}\t${formatPzas(r.piezas)}\t${volTotal.toFixed(2)}`;
-      })
-      .join("\n");
-    const textArea = document.createElement("textarea");
-    textArea.value = tsvString;
-    textArea.style.position = "fixed";
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-    try {
-      document.execCommand("copy");
-    } catch (err) {}
-    document.body.removeChild(textArea);
-  }, []);
+          const formatDim = (val) => {
+            if (isNaN(parseFloat(val)) || parseFloat(val) === 0) return "";
+            return parseFloat(val).toFixed(2);
+          };
+          const formatKgMl = (val) => {
+            if (isNaN(parseFloat(val)) || parseFloat(val) === 0) return "";
+            return parseFloat(val).toFixed(3);
+          };
+          const formatPzas = (val) => {
+            if (isNaN(parseFloat(val)) || parseFloat(val) === 0) return "1.00";
+            return parseFloat(val).toFixed(2);
+          };
+          const claveCompleta = [r.eje, r.claveLoc].filter(Boolean).join(" - ");
+          return `${claveCompleta}\t${formatDim(r.largo)}\t${formatDim(r.ancho)}\t${formatKgMl(r.kg_ml)}\t${formatDim(r.alto)}\t${finalVolPza.toFixed(2)}\t${formatPzas(r.piezas)}\t${volTotal.toFixed(2)}`;
+        })
+        .join("\n");
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(tsvString).catch(() => {});
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = tsvString;
+        textArea.style.position = "fixed";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+          // eslint-disable-next-line
+          document.execCommand("copy");
+        } catch (err) {}
+        document.body.removeChild(textArea);
+      }
+    }, []);
 
   const handleCopyRows = () => {
     if (!editingModal) return;
@@ -2043,6 +2115,7 @@ function ProjectWorkspace({
               largo: clipData.largo !== undefined ? clipData.largo : row.largo,
               ancho: clipData.ancho !== undefined ? clipData.ancho : row.ancho,
               alto: clipData.alto !== undefined ? clipData.alto : row.alto,
+              kg_ml: clipData.kg_ml !== undefined ? clipData.kg_ml : row.kg_ml,
               piezas:
                 clipData.piezas !== undefined ? clipData.piezas : row.piezas,
               overrideVolPza:
@@ -2381,7 +2454,7 @@ function ProjectWorkspace({
       const neto = Math.max(0, bruto - dedH - dedC);
       const areaAcabados = Math.max(0, bruto - dedH);
       totalMuros += neto;
-      const anchoStr = parseFloat(w.ancho || 0).toFixed(2);
+      const anchoStr = (!isNaN(parseFloat(w.ancho)) ? parseFloat(w.ancho) : 0).toFixed(2);
       murosPorAncho[anchoStr] = (murosPorAncho[anchoStr] || 0) + neto;
       const addAreaAcabado = (dict, tipo) => {
         if (tipo?.trim()) {
@@ -2420,14 +2493,14 @@ function ProjectWorkspace({
     // Start with height minus footing thickness
     let effectiveH = Math.max(0, hOrig - thicknessZapata);
 
-    if (slabTypeInput === "maciza") {
-      if (isCorner) {
-        effectiveH -= thickness / 2;
-      } else {
-        effectiveH -= thickness;
+    if (slabTypeInput) {
+      if (slabTypeInput !== "vigueta") {
+        if (isCorner && (tipo.includes("muro") || tipo.includes("columna") || tipo === "dado" || tipo === "trabe" || tipo === "contratrabe")) {
+          effectiveH -= thickness / 2;
+        } else {
+          effectiveH -= thickness;
+        }
       }
-    } else if (slabTypeInput === "vigueta") {
-      // For vigueta, do not subtract thickness as per request
     } else {
       const simpleDiscount = parseFloat(r.descuentoLosa) || 0;
       effectiveH = Math.max(0, effectiveH - simpleDiscount);
@@ -2735,9 +2808,9 @@ function ProjectWorkspace({
       else if (tipo === "trabe") groupOtros = "Trabes";
       else if (tipo === "nervadura") groupOtros = "Nervaduras";
       else if (tipo === "zapata aislada")
-        groupOtros = `Zapatas Aisladas (Esp: ${parseFloat(e.alto || 0).toFixed(2)}m)`;
+        groupOtros = `Zapatas Aisladas (Esp: ${(!isNaN(parseFloat(e.alto)) ? parseFloat(e.alto) : 0).toFixed(2)}m)`;
       else if (tipo === "zapata corrida")
-        groupOtros = `Zapatas Corridas (Esp: ${parseFloat(e.alto || 0).toFixed(2)}m)`;
+        groupOtros = `Zapatas Corridas (Esp: ${(!isNaN(parseFloat(e.alto)) ? parseFloat(e.alto) : 0).toFixed(2)}m)`;
       else if (tipo === "contratrabe") groupOtros = "Contratrabes";
       else if (tipo === "dado") groupOtros = "Dados";
 
@@ -2817,10 +2890,10 @@ function ProjectWorkspace({
         ensureBucket("Losas de Vigueta", "Losas de Vigueta");
         breakdown["Losas de Vigueta"].cimbraFrontera += cimFrontera;
         breakdown["Losas de Vigueta"].cimbra += cim;
-        if (tipo.includes("h=25")) {
+        if (/\b(h=?25)\b/i.test(tipo)) {
           if (tipo.includes("doble")) breakdown["Losas de Vigueta"].areaDobleViguetaH25 += l * a * piezasMultiplier;
           else breakdown["Losas de Vigueta"].areaViguetasH25 += l * a * piezasMultiplier;
-        } else if (tipo.includes("h=35")) {
+        } else if (/\b(h=?35)\b/i.test(tipo)) {
           if (tipo.includes("doble")) breakdown["Losas de Vigueta"].areaDobleViguetaH35 += l * a * piezasMultiplier;
           else breakdown["Losas de Vigueta"].areaViguetasH35 += l * a * piezasMultiplier;
         } else {
@@ -2833,6 +2906,26 @@ function ProjectWorkspace({
 
       const p = parseFloat(e.piezas) || 1;
       const h = parseFloat(e.alto) || 0;
+      const tLower = tipo;
+      const hasTipoLosa = !!e.structTipoLosa;
+      const isEsquina = e.structEsquinaLosa === true;
+      const thicknessZapata = parseFloat(e.structEspesorZapata) || 0;
+      const thicknessLosa = parseFloat(e.structEspesorLosa) || 0;
+      const hOrig = parseFloat(e.alto) || 0;
+      let hBase = Math.max(0, hOrig - thicknessZapata);
+      let h_eff_cimbra = hBase;
+      if (hasTipoLosa) {
+        if (isEsquina && (tLower.includes("muro") || tLower.includes("columna") || /^(dados?|trabes?|contratrabes?)$/i.test(tLower))) {
+          h_eff_cimbra = hBase - (thicknessLosa / 2);
+        } else {
+          h_eff_cimbra = hBase - thicknessLosa;
+        }
+      } else {
+        const simpleDiscount = parseFloat(e.descuentoLosa) || 0;
+        h_eff_cimbra = Math.max(0, hBase - simpleDiscount);
+      }
+      h_eff_cimbra = Math.max(0, h_eff_cimbra);
+
       if (
         tipo === "muro" ||
         tipo === "muro curvo" ||
@@ -2845,44 +2938,44 @@ function ProjectWorkspace({
         breakdown[groupOtros].pasosMuros += Math.floor(l / 4) * p;
 
         if (tipo === "muro curvo") {
-          if (h <= 3) {
+          if (h_eff_cimbra <= 3) {
             breakdown[groupOtros].cimbraMuroCurvo_0_3 += cim;
-          } else if (h <= 6) {
-            breakdown[groupOtros].cimbraMuroCurvo_0_3 += (cim / h) * 3;
-            breakdown[groupOtros].cimbraMuroCurvo_3_6 += (cim / h) * (h - 3);
+          } else if (h_eff_cimbra <= 6) {
+            breakdown[groupOtros].cimbraMuroCurvo_0_3 += (cim / h_eff_cimbra) * 3;
+            breakdown[groupOtros].cimbraMuroCurvo_3_6 += (cim / h_eff_cimbra) * (h_eff_cimbra - 3);
           } else {
-            breakdown[groupOtros].cimbraMuroCurvo_0_3 += (cim / h) * 3;
-            breakdown[groupOtros].cimbraMuroCurvo_3_6 += (cim / h) * 3;
-            breakdown[groupOtros].cimbraMuroCurvo_6_9 += (cim / h) * (h - 6);
+            breakdown[groupOtros].cimbraMuroCurvo_0_3 += (cim / h_eff_cimbra) * 3;
+            breakdown[groupOtros].cimbraMuroCurvo_3_6 += (cim / h_eff_cimbra) * 3;
+            breakdown[groupOtros].cimbraMuroCurvo_6_9 += (cim / h_eff_cimbra) * (h_eff_cimbra - 6);
           }
         } else {
-          if (h <= 3) {
+          if (h_eff_cimbra <= 3) {
             breakdown[groupOtros].cimbraMuros_0_3 += cim;
-          } else if (h <= 6) {
-            breakdown[groupOtros].cimbraMuros_0_3 += (cim / h) * 3;
-            breakdown[groupOtros].cimbraMuros_3_6 += (cim / h) * (h - 3);
+          } else if (h_eff_cimbra <= 6) {
+            breakdown[groupOtros].cimbraMuros_0_3 += (cim / h_eff_cimbra) * 3;
+            breakdown[groupOtros].cimbraMuros_3_6 += (cim / h_eff_cimbra) * (h_eff_cimbra - 3);
           } else {
-            breakdown[groupOtros].cimbraMuros_0_3 += (cim / h) * 3;
-            breakdown[groupOtros].cimbraMuros_3_6 += (cim / h) * 3;
-            breakdown[groupOtros].cimbraMuros_6_9 += (cim / h) * (h - 6);
+            breakdown[groupOtros].cimbraMuros_0_3 += (cim / h_eff_cimbra) * 3;
+            breakdown[groupOtros].cimbraMuros_3_6 += (cim / h_eff_cimbra) * 3;
+            breakdown[groupOtros].cimbraMuros_6_9 += (cim / h_eff_cimbra) * (h_eff_cimbra - 6);
           }
         }
       } else if (tipo === "columna" || tipo === "columna circular") {
         ensureBucket("Columnas", "columna");
         breakdown["Columnas"].emplayerColumnas += cim;
 
-        if (h <= 3) {
+        if (h_eff_cimbra <= 3) {
           breakdown[groupOtros].cimbraColumnas_0_3 += cim;
-        } else if (h <= 6) {
-          breakdown[groupOtros].cimbraColumnas_0_3 += (cim / h) * 3;
-          breakdown[groupOtros].cimbraColumnas_3_6 += (cim / h) * (h - 3);
+        } else if (h_eff_cimbra <= 6) {
+          breakdown[groupOtros].cimbraColumnas_0_3 += (cim / h_eff_cimbra) * 3;
+          breakdown[groupOtros].cimbraColumnas_3_6 += (cim / h_eff_cimbra) * (h_eff_cimbra - 3);
         } else {
-          breakdown[groupOtros].cimbraColumnas_0_3 += (cim / h) * 3;
-          breakdown[groupOtros].cimbraColumnas_3_6 += (cim / h) * 3;
-          breakdown[groupOtros].cimbraColumnas_6_9 += (cim / h) * (h - 6);
+          breakdown[groupOtros].cimbraColumnas_0_3 += (cim / h_eff_cimbra) * 3;
+          breakdown[groupOtros].cimbraColumnas_3_6 += (cim / h_eff_cimbra) * 3;
+          breakdown[groupOtros].cimbraColumnas_6_9 += (cim / h_eff_cimbra) * (h_eff_cimbra - 6);
         }
 
-        if (h > 3) breakdown[groupOtros].andamiajeColumnas += p;
+        if (h_eff_cimbra > 3) breakdown[groupOtros].andamiajeColumnas += p;
       } else if (tipo === "trabe") {
         breakdown[groupOtros].andamiajeTrabes += l * p;
       }
@@ -3309,18 +3402,27 @@ function ProjectWorkspace({
         const tk = tipoKey.toLowerCase();
 
         let eGroup = t;
-        if (t === "columna") eGroup = "columnas";
-        else if (t === "columna circular") eGroup = "columnas circulares";
-        else if (t === "muro" || t === "muro curvo") eGroup = "muros";
-        else if (t === "losa" || t === "losa nervada") eGroup = "losas";
-        else if (t === "trabe") eGroup = "trabes";
-        else if (t === "nervadura") eGroup = "nervaduras";
+        if (t === "columna" || t === "columnas") eGroup = "columnas";
+        else if (t === "columna circular" || t === "columnas circulares") eGroup = "columnas circulares";
+        else if (t === "muro" || t === "muro curvo" || t === "muros" || t === "muros curvos") eGroup = "muros";
+        else if (
+          t === "losa" ||
+          t === "losas" ||
+          t === "losa nervada" ||
+          t === "escalera papelillo" ||
+          t === "rampa de escalera"
+        )
+          eGroup = "losas";
+        else if (t.includes("vigueta")) eGroup = "losas de vigueta";
+        else if (t === "trabe" || t === "trabes") eGroup = "trabes";
+        else if (t === "nervadura" || t === "nervaduras") eGroup = "nervaduras";
         else if (t === "zapata aislada")
           eGroup = `zapatas aisladas (esp: ${parseFloat(e.alto || 0).toFixed(2)}m)`;
         else if (t === "zapata corrida")
           eGroup = `zapatas corridas (esp: ${parseFloat(e.alto || 0).toFixed(2)}m)`;
         else if (t === "contratrabe") eGroup = "contratrabes";
         else if (t === "dado") eGroup = "dados";
+        else if (t === "pila" || t === "pilas") eGroup = "pilas";
 
         return eGroup === tk;
       });
@@ -3334,6 +3436,34 @@ function ProjectWorkspace({
         let aValue = e.ancho;
 
         const t = e.tipo?.toLowerCase() || "";
+
+        let effectiveH = parseFloat(e.alto) || 0;
+        if (
+          t === "nervadura" ||
+          t.includes("vigueta h=") ||
+          t.includes("vigueta h35") ||
+          t.includes("vigueta h25")
+        )
+          return [];
+        const thicknessZapata = parseFloat(e.structEspesorZapata) || 0;
+        const thicknessLosa = parseFloat(e.structEspesorLosa) || 0;
+        const slabTypeInput = (e.structTipoLosa || "").toLowerCase();
+        const isEsquina = e.structEsquinaLosa === true;
+        effectiveH = Math.max(0, effectiveH - thicknessZapata);
+        if (slabTypeInput) {
+          if (slabTypeInput !== "vigueta") {
+            if (isEsquina && (t.includes("muro") || t.includes("columna") || t === "dado" || t === "trabe" || t === "contratrabe")) {
+              effectiveH -= thicknessLosa / 2;
+            } else {
+              effectiveH -= thicknessLosa;
+            }
+          }
+        } else {
+          const simpleDiscount = parseFloat(e.descuentoLosa) || 0;
+          effectiveH = Math.max(0, effectiveH - simpleDiscount);
+        }
+        effectiveH = Math.max(0, effectiveH);
+
         if (t === "columna circular" || t === "pilas" || t === "pila") {
           const radio = lValue / 2;
           lValue = Math.PI * radio * radio;
@@ -3345,7 +3475,7 @@ function ProjectWorkspace({
             ...base,
             largo: lValue,
             ancho: aValue,
-            alto: e.alto,
+            alto: effectiveH,
             piezas: e.piezas,
           },
         ];
@@ -3371,6 +3501,8 @@ function ProjectWorkspace({
     } else if (
       [
         "cimbra",
+        "cimbraEscaleraPapelillo",
+        "cimbraRampaEscalera",
         "obturacionMuros",
         "mallaRefuerzo",
         "emplayerColumnas",
@@ -3384,13 +3516,31 @@ function ProjectWorkspace({
       rowsToCopy = filtered.flatMap((e) => {
         const l = getEffectiveLargo(e),
           a = e.ancho,
-          h = parseFloat(e.alto) || 0,
+          hOrig = parseFloat(e.alto) || 0,
           p = parseFloat(e.piezas) || 1,
           t = (e.tipo || "").toLowerCase(),
           base = { eje: e.eje || "", claveLoc: e.clave || "" };
 
+        const thicknessZapata = parseFloat(e.structEspesorZapata) || 0;
+        const thicknessLosa = parseFloat(e.structEspesorLosa) || 0;
+        const isEsquina = e.structEsquinaLosa === true;
+        
+        let hBase = Math.max(0, hOrig - thicknessZapata);
+        let h_eff = hBase;
+        if (e.structTipoLosa) {
+          if (isEsquina && (t.includes("muro") || t.includes("columna") || t === "dado" || t === "trabe" || t === "contratrabe")) {
+            h_eff = hBase - (thicknessLosa / 2);
+          } else {
+            h_eff = hBase - thicknessLosa;
+          }
+        } else {
+          const discount = parseFloat(e.descuentoLosa) || 0;
+          h_eff = Math.max(0, hBase - discount);
+        }
+        h_eff = Math.max(0, h_eff);
+
         let shouldInclude = true;
-        let outputAlto = h;
+        let outputAlto = h_eff;
 
         if (
           material.startsWith("cimbraMuros_") &&
@@ -3398,6 +3548,8 @@ function ProjectWorkspace({
           t !== "muros"
         )
           return [];
+        if (material === "cimbraEscaleraPapelillo" && t !== "escalera papelillo") return [];
+        if (material === "cimbraRampaEscalera" && t !== "rampa de escalera") return [];
         if (
           material.startsWith("cimbraMuroCurvo_") &&
           t !== "muro curvo" &&
@@ -3411,14 +3563,14 @@ function ProjectWorkspace({
           material.startsWith("cimbraMuroCurvo_")
         ) {
           if (material.endsWith("0_3")) {
-            outputAlto = Math.min(3, h);
+            outputAlto = Math.min(3, h_eff);
             shouldInclude = outputAlto > 0;
           } else if (material.endsWith("3_6")) {
-            if (h <= 3) return [];
-            outputAlto = Math.min(3, h - 3);
+            if (h_eff <= 3) return [];
+            outputAlto = Math.min(3, h_eff - 3);
           } else if (material.endsWith("6_9")) {
-            if (h <= 6) return [];
-            outputAlto = h - 6;
+            if (h_eff <= 6) return [];
+            outputAlto = h_eff - 6;
           }
         }
         if (!shouldInclude) return [];
@@ -3447,7 +3599,7 @@ function ProjectWorkspace({
         if (
           t === "losa" ||
           t === "losa nervada" ||
-          t === "losa de vigueta" ||
+          t.includes("vigueta") ||
           t === "escalera papelillo" ||
           t === "rampa de escalera"
         )
@@ -3514,7 +3666,7 @@ function ProjectWorkspace({
                 : "Lados X" + labelSuffix,
               largo: l,
               ancho: 2,
-              alto: h,
+              alto: h_eff,
               piezas: p,
             },
             {
@@ -3524,7 +3676,7 @@ function ProjectWorkspace({
                 : "Lados Y" + labelSuffix,
               largo: a,
               ancho: 2,
-              alto: h,
+              alto: h_eff,
               piezas: p,
             },
           ];
@@ -3547,7 +3699,7 @@ function ProjectWorkspace({
                 : "Laterales" + labelSuffix,
               largo: l,
               ancho: 2,
-              alto: h,
+              alto: h_eff,
               piezas: p,
             },
           ];
@@ -3566,11 +3718,14 @@ function ProjectWorkspace({
         const tipoMatch = (e.tipo || "").toLowerCase();
         
         let match = false;
-        if (isDoble && isH25 && tipoMatch.includes("doble") && tipoMatch.includes("h=25")) match = true;
-        else if (isDoble && isH35 && tipoMatch.includes("doble") && tipoMatch.includes("h=35")) match = true;
-        else if (!isDoble && isH25 && !tipoMatch.includes("doble") && tipoMatch.includes("h=25")) match = true;
-        else if (!isDoble && isH35 && !tipoMatch.includes("doble") && tipoMatch.includes("h=35")) match = true;
-        else if (material === "areaViguetasGENERIC" && !tipoMatch.includes("h=25") && !tipoMatch.includes("h=35")) match = true;
+        const hasH25 = tipoMatch.includes("h=25") || tipoMatch.includes("h25");
+        const hasH35 = tipoMatch.includes("h=35") || tipoMatch.includes("h35");
+        
+        if (isDoble && isH25 && tipoMatch.includes("doble") && hasH25) match = true;
+        else if (isDoble && isH35 && tipoMatch.includes("doble") && hasH35) match = true;
+        else if (!isDoble && isH25 && !tipoMatch.includes("doble") && hasH25) match = true;
+        else if (!isDoble && isH35 && !tipoMatch.includes("doble") && hasH35) match = true;
+        else if (material === "areaViguetasGENERIC" && !hasH25 && !hasH35) match = true;
         else if (material === "areaViguetas") match = true; // fallback
         
         if (!match) return [];
@@ -3653,6 +3808,7 @@ function ProjectWorkspace({
       material.startsWith("anclajeVar_")
     ) {
       const targetNumV = material.split("_")[1] || "";
+      if (!targetNumV) return [];
       rowsToCopy = filtered.flatMap((e) => {
         const t = (e.tipo || "").toLowerCase();
         if (t === "muro" || t === "muro curvo") {
@@ -3708,7 +3864,7 @@ function ProjectWorkspace({
         if (
           t === "losa" ||
           t === "losa nervada" ||
-          t === "losa de vigueta" ||
+          t.includes("vigueta") ||
           t === "escalera papelillo" ||
           t === "rampa de escalera"
         )
@@ -5890,48 +6046,60 @@ function ProjectWorkspace({
               className="w-full lg:w-[350px] bg-slate-100 p-6 flex flex-col border-l border-slate-200"
               onPaste={handlePasteImage}
             >
-              <h4 className="font-black text-slate-600 uppercase text-xs mb-4 flex items-center gap-2">
+              <h4 className="font-black text-slate-600 uppercase text-xs mb-4 flex items-center gap-2 shrink-0">
                 <FileDown size={16} /> Croquis / Referencia
               </h4>
-              <div className="flex-1 bg-white border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center relative overflow-hidden group">
-                {currentLevel.image ? (
-                  <>
-                    <img
-                      src={currentLevel.image}
-                      alt="Referencia"
-                      className="w-full h-full object-contain p-2"
-                    />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                      <button
-                        onClick={() =>
-                          updateActiveGeneradores((prev) => {
-                            const c = prev[concepto.id];
-                            return {
-                              ...prev,
-                              [concepto.id]: {
-                                ...c,
-                                [nivel.id]: { ...c[nivel.id], image: null },
-                              },
-                            };
-                          })
-                        }
-                        className="p-3 bg-red-600 text-white rounded-full hover:bg-red-500"
-                      >
-                        <Trash2 size={20} />
-                      </button>
+              <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar">
+                {[0, 1, 2].map((i) => {
+                  const currentImages = currentLevel.images || (currentLevel.image ? [currentLevel.image] : []);
+                  const img = currentImages[i];
+                  return (
+                    <div key={i} className="w-full bg-white border-2 border-dashed border-slate-300 rounded-xl h-[250px] shrink-0 flex items-center justify-center relative overflow-hidden group">
+                      {img ? (
+                        <>
+                          <img
+                            src={img}
+                            alt={`Referencia ${i + 1}`}
+                            className="w-full h-full object-contain p-2"
+                          />
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                            <button
+                              onClick={() =>
+                                updateActiveGeneradores((prev) => {
+                                  const c = prev[concepto.id];
+                                  const cLevel = c[nivel.id] || {};
+                                  const imgs = cLevel.images || (cLevel.image ? [cLevel.image] : []);
+                                  const newImgs = [...imgs];
+                                  newImgs.splice(i, 1);
+                                  return {
+                                    ...prev,
+                                    [concepto.id]: {
+                                      ...c,
+                                      [nivel.id]: { ...cLevel, images: newImgs, image: null },
+                                    },
+                                  };
+                                })
+                              }
+                              className="p-3 bg-red-600 text-white rounded-full hover:bg-red-500"
+                            >
+                              <Trash2 size={20} />
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-center p-6">
+                          <ClipboardPaste
+                            size={24}
+                            className="mx-auto text-slate-300 mb-2"
+                          />
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">
+                            Pegar Imagen {i + 1}
+                          </p>
+                        </div>
+                      )}
                     </div>
-                  </>
-                ) : (
-                  <div className="text-center p-6">
-                    <ClipboardPaste
-                      size={32}
-                      className="mx-auto text-slate-300 mb-3"
-                    />
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">
-                      Haz Ctrl+V para pegar una imagen de referencia aquí
-                    </p>
-                  </div>
-                )}
+                  );
+                })}
               </div>
               <div className="mt-6 bg-slate-800 text-white p-5 rounded-2xl shadow-lg">
                 <p className="text-[10px] text-blue-300 font-black uppercase mb-1 tracking-widest">
@@ -5997,7 +6165,7 @@ function ProjectWorkspace({
             {conceptosConDatos.map((c) => {
               const dataNivel = generadores[c.id]?.[n.id] || { rows: [] };
               const rows = dataNivel.rows || [];
-              const croquis = dataNivel.image;
+              const refImages = dataNivel.images || (dataNivel.image ? [dataNivel.image] : []);
               const totalVol = getVolumenNivel(c.id, n.id);
 
               return (
@@ -6153,18 +6321,20 @@ function ProjectWorkspace({
                         </tfoot>
                       </table>
                     </div>
-                    {croquis && (
-                      <div className="w-full bg-slate-50 border-t border-slate-200 p-4 flex flex-col">
-                        <span className="text-[12px] font-black uppercase tracking-widest text-slate-400 mb-2 text-center border-b border-slate-200 pb-1">
+                    {refImages.length > 0 && (
+                      <div className="w-full bg-slate-50 border-t border-slate-200 p-4 flex flex-col gap-4">
+                        <span className="text-[12px] font-black uppercase tracking-widest text-slate-400 text-center border-b border-slate-200 pb-1">
                           Croquis de Referencia
                         </span>
-                        <div className="w-full flex items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl overflow-hidden p-2">
-                          <img
-                            src={croquis}
-                            alt="Croquis"
-                            className="w-full h-auto object-contain max-h-[300px]"
-                          />
-                        </div>
+                        {refImages.map((croquis, i) => (
+                           <div key={i} className="w-full flex items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl overflow-hidden p-2">
+                             <img
+                               src={croquis}
+                               alt={`Croquis ${i + 1}`}
+                               className="w-full h-auto object-contain max-h-[300px]"
+                             />
+                           </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -6290,14 +6460,31 @@ function ProjectWorkspace({
                             <td colspan="6" style="border-top: 2px solid #000000; border-bottom: 2px solid #000000; border-left: 2px solid #000000; border-right: none;"></td>
                             <td style="padding: 6px 10px; border-top: 2px solid #000000; border-bottom: 2px solid #000000; border-left: none; text-align: right; color: #595959; font-size: 10pt; font-weight: bold;">TOTAL:</td>
                             <td style="padding: 6px 10px; border-top: 2px solid #000000; border-bottom: 2px solid #000000; border-right: 2px solid #000000; text-align: right; font-weight: bold; color: #0070C0; font-size: 11pt; mso-number-format:'0\\.00';">${total.toFixed(2)}</td>
-                         </tr>
+                         </tr>`;
+
+                  if (refImages.length === 0) {
+                      html += `
                          <tr><td colspan="9" style="height: 10px; border: none;"></td></tr>
                          <tr>
                             <td style="border: none;"></td>
                             <td colspan="8" style="height: 250px; border: 1.5px dashed #A6A6A6; text-align: center; vertical-align: middle; color: #BFBFBF; font-size: 10pt; text-transform: uppercase;">
                                [ ESPACIO PARA INSERTAR CROQUIS / IMAGEN DE REFERENCIA ]
                             </td>
-                         </tr>
+                         </tr>`;
+                  } else {
+                      refImages.forEach((imgSrc) => {
+                          html += `
+                          <tr><td colspan="9" style="height: 10px; border: none;"></td></tr>
+                          <tr>
+                             <td style="border: none;"></td>
+                             <td colspan="8" style="text-align: center; vertical-align: middle; border: 1.5px solid #D9D9D9; padding: 10px;">
+                                <img src="${imgSrc}" style="max-height: 400px; max-width: 100%;" />
+                             </td>
+                          </tr>`;
+                      });
+                  }
+
+                  html += `
                       </tfoot>
                    </table>`;
                 });
@@ -12562,73 +12749,7 @@ function ProjectWorkspace({
               </button>
               <button
                 onClick={() => {
-                  let html = `<table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">
-                      <colgroup>
-                         <col width="30" />
-                         <col width="120" />
-                         <col width="100" />
-                         <col width="100" />
-                         <col width="250" />
-                         <col width="450" />
-                         <col width="80" />
-                         ${niveles.map(() => '<col width="110" />').join("")}
-                         <col width="110" />
-                      </colgroup>
-                      <thead>
-                      <tr style="height: 15pt;">
-                         <td colspan="${7 + niveles.length + 1}" style="border: none; background-color: #ffffff;"></td>
-                      </tr>
-                      <tr style="height: 25pt;">
-                         <td style="border: none; background-color: #ffffff;"></td>
-                         <td colspan="${6 + niveles.length + 1}" style="background-color: #0b1a30; color: #ffffff; font-size: 10pt; font-weight: bold; text-align: center; vertical-align: middle; padding: 8px; border: none; text-transform: uppercase;">
-                            CATÁLOGO GENERAL - PARTIDA: ${activePartida.nombre}
-                         </td>
-                      </tr>
-                      <tr><td colspan="${7 + niveles.length + 1}" style="height: 10px; border: none; background-color: #ffffff;"></td></tr>
-                      <tr style="height: 20pt;">
-                         <td style="border: none; background-color: #ffffff;"></td>
-                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CÓDIGO</td>
-                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CLAVE</td>
-                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">CC</td>
-                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">JUSTIFICACIÓN</td>
-                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">DESCRIPCIÓN</td>
-                         <td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">UNID.</td>
-                         ${niveles.map((n) => `<td style="background-color: #0b1a30; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">${n.nombre.toUpperCase()}</td>`).join("")}
-                         <td style="background-color: #000000; color: #ffffff; text-align: center; vertical-align: middle; font-weight: bold; font-size: 10pt; border: 1px solid #ffffff;">TOTAL</td>
-                      </tr>
-                  </thead><tbody>`;
-
-                  conceptos.forEach((c) => {
-                    const just = (c.justificacion || "").replace(/\n/g, " ");
-                    const desc = (c.descripcion || "").replace(/\n/g, " ");
-                    const total = getTotalConcepto(c.id);
-
-                    html += `<tr style="background-color: #ffffff; mso-height-source: auto;">
-                         <td style="border: none; background-color: #ffffff;"></td>
-                         <td style="font-weight: bold; color: #002060; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 12pt;">${c.id}</td>
-                         <td style="font-weight: bold; color: #404040; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 10pt;">${c.clave || ""}</td>
-                         <td style="font-weight: bold; color: #404040; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 10pt;">${c.cc || ""}</td>
-                         <td style="color: #404040; text-align: left; vertical-align: middle; padding: 10px; border: 1px solid #b4c6e7; font-size: 10pt; white-space: normal; word-wrap: break-word; mso-height-source: auto;">${just}</td>
-                         <td style="font-weight: normal; color: #404040; text-align: center; vertical-align: middle; padding: 10px; border: 1px solid #b4c6e7; font-size: 10pt; white-space: normal; word-wrap: break-word; mso-height-source: auto;">${desc}</td>
-                         <td style="color: #0070c0; font-weight: bold; text-align: center; vertical-align: middle; padding: 8px; border: 1px solid #b4c6e7; font-size: 12pt;">${c.unidad || ""}</td>
-                         ${niveles
-                           .map((n) => {
-                             const vol = getVolumenNivel(c.id, n.id);
-                             if (vol > 0) {
-                               return `<td style="font-weight: bold; background-color: #e3fde4; color: #006368; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 12pt; mso-number-format:'0\\.00';">${vol.toFixed(2)}</td>`;
-                             } else {
-                               return `<td style="color: #006368; background-color: #e3fde4; font-weight: bold; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 12pt;">-</td>`;
-                             }
-                           })
-                           .join("")}
-                         <td style="font-weight: bold; color: #000000; text-align: center; vertical-align: middle; padding: 6px; border: 1px solid #b4c6e7; font-size: 12pt; mso-number-format:'0\\.00';">${total > 0 ? total.toFixed(2) : "-"}</td>
-                      </tr>`;
-                  });
-                  html += "</tbody></table>";
-                  exportFormattedExcel(
-                    html,
-                    `Matriz_Conceptos_${activePartida.nombre}`,
-                  );
+                   exportRealExcelElegante(activePartida, conceptos, niveles, generadores);
                 }}
                 className="px-5 py-2 bg-emerald-600 text-white rounded-xl text-[10px] md:text-xs font-black shadow-md transition-transform active:scale-95 uppercase tracking-wider hover:bg-emerald-500 flex items-center gap-2 ml-auto"
               >
